@@ -8,23 +8,28 @@
 
 /* Begin PBXBuildFile section */
 		3966A0C120DD06FF00DB3C14 /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 3966A0C020DD06FF00DB3C14 /* main.cpp */; };
+		3966A0C920DD092B00DB3C14 /* vulkan.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3966A0C820DD092B00DB3C14 /* vulkan.framework */; };
+		3966A0CF20DD107D00DB3C14 /* vulkan.framework in CopyFiles */ = {isa = PBXBuildFile; fileRef = 3966A0CE20DD107D00DB3C14 /* vulkan.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		3966A0BB20DD06FF00DB3C14 /* CopyFiles */ = {
 			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = /usr/share/man/man1/;
-			dstSubfolderSpec = 0;
+			buildActionMask = 12;
+			dstPath = "";
+			dstSubfolderSpec = 10;
 			files = (
+				3966A0CF20DD107D00DB3C14 /* vulkan.framework in CopyFiles */,
 			);
-			runOnlyForDeploymentPostprocessing = 1;
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		3966A0BD20DD06FF00DB3C14 /* DrawTriangle */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = DrawTriangle; sourceTree = BUILT_PRODUCTS_DIR; };
 		3966A0C020DD06FF00DB3C14 /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
+		3966A0C820DD092B00DB3C14 /* vulkan.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = vulkan.framework; sourceTree = "<group>"; };
+		3966A0CE20DD107D00DB3C14 /* vulkan.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = vulkan.framework; path = ../VulkanTest2/vulkan.framework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -32,6 +37,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3966A0C920DD092B00DB3C14 /* vulkan.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -41,8 +47,10 @@
 		3966A0B420DD06FF00DB3C14 = {
 			isa = PBXGroup;
 			children = (
+				3966A0CE20DD107D00DB3C14 /* vulkan.framework */,
 				3966A0BF20DD06FF00DB3C14 /* DrawTriangle */,
 				3966A0BE20DD06FF00DB3C14 /* Products */,
+				3966A0C720DD092B00DB3C14 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -60,6 +68,14 @@
 				3966A0C020DD06FF00DB3C14 /* main.cpp */,
 			);
 			path = DrawTriangle;
+			sourceTree = "<group>";
+		};
+		3966A0C720DD092B00DB3C14 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				3966A0C820DD092B00DB3C14 /* vulkan.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -238,6 +254,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)",
+				);
+				HEADER_SEARCH_PATHS = (
+					/usr/local/Cellar/glm/0.9.9.0/include,
+					"/usr/local/lib/vulkansdk-macos/macOS/include",
+				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Debug;
@@ -246,6 +270,14 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)",
+				);
+				HEADER_SEARCH_PATHS = (
+					/usr/local/Cellar/glm/0.9.9.0/include,
+					"/usr/local/lib/vulkansdk-macos/macOS/include",
+				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Release;
