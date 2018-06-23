@@ -6,6 +6,13 @@
 //  Copyright © 2018年 Kousaku Namikawa. All rights reserved.
 //
 
+#define GLFW_INCLUDE_VULKAN
+
+// 3DCG ライブラリ
+#include <vulkan/vulkan.h>
+#include <glm/glm.hpp>
+#include <GLFW/glfw3.h>
+
 // errorやlog用
 #include <iostream>
 #include <stdexcept>
@@ -13,29 +20,46 @@
 #include <functional>
 // EXIT_SUCCESSとEXIT_FAILUREを提供する
 #include <cstdlib>
-// 3DCG ライブラリ
-#include <vulkan/vulkan.h>
-#include <glm/glm.hpp>
+
+
+const int WIDTH = 800;
+const int HEIGHT = 600;
 
 class HelloTriangleApplication {
 public:
     void run() {
+        initWindow();
         initVulkan();
         mainLoop();
         cleanup();
     }
     
 private:
+    GLFWwindow* window;
+    
+    void initWindow() {
+        glfwInit();
+        glfwGetTime();
+
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+        
+        window = glfwCreateWindow(800, 600, "Vulkan Test!!", nullptr, nullptr);
+    }
     void initVulkan() {
         
     }
     
     void mainLoop() {
-        
+        while (!glfwWindowShouldClose(window)) {
+            glfwPollEvents();
+        }
     }
     
     void cleanup() {
+        glfwDestroyWindow(window);
         
+        glfwTerminate();
     }
 };
 

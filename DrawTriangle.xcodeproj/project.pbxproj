@@ -10,6 +10,12 @@
 		3966A0C120DD06FF00DB3C14 /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 3966A0C020DD06FF00DB3C14 /* main.cpp */; };
 		3966A0C920DD092B00DB3C14 /* vulkan.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3966A0C820DD092B00DB3C14 /* vulkan.framework */; };
 		3966A0CF20DD107D00DB3C14 /* vulkan.framework in CopyFiles */ = {isa = PBXBuildFile; fileRef = 3966A0CE20DD107D00DB3C14 /* vulkan.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		3966A0D520DD31C300DB3C14 /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3966A0D420DD31C300DB3C14 /* CoreVideo.framework */; };
+		3966A0D720DD31D200DB3C14 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3966A0D620DD31D200DB3C14 /* Cocoa.framework */; };
+		3966A0D920DD31E300DB3C14 /* OpenGL.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3966A0D820DD31E300DB3C14 /* OpenGL.framework */; };
+		3966A0DB20DD31EA00DB3C14 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3966A0DA20DD31EA00DB3C14 /* IOKit.framework */; };
+		3969365020DD3B3C0016F2A4 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3969364F20DD3B3C0016F2A4 /* QuartzCore.framework */; };
+		3969365620DE14A10016F2A4 /* libglfw3.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 3969365520DE14A10016F2A4 /* libglfw3.a */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -30,6 +36,12 @@
 		3966A0C020DD06FF00DB3C14 /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
 		3966A0C820DD092B00DB3C14 /* vulkan.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = vulkan.framework; sourceTree = "<group>"; };
 		3966A0CE20DD107D00DB3C14 /* vulkan.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = vulkan.framework; path = ../VulkanTest2/vulkan.framework; sourceTree = "<group>"; };
+		3966A0D420DD31C300DB3C14 /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
+		3966A0D620DD31D200DB3C14 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		3966A0D820DD31E300DB3C14 /* OpenGL.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = OpenGL.framework; path = System/Library/Frameworks/OpenGL.framework; sourceTree = SDKROOT; };
+		3966A0DA20DD31EA00DB3C14 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
+		3969364F20DD3B3C0016F2A4 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		3969365520DE14A10016F2A4 /* libglfw3.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libglfw3.a; path = ../../../../../usr/local/lib/libglfw3.a; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -37,7 +49,13 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3969365020DD3B3C0016F2A4 /* QuartzCore.framework in Frameworks */,
+				3966A0DB20DD31EA00DB3C14 /* IOKit.framework in Frameworks */,
+				3966A0D920DD31E300DB3C14 /* OpenGL.framework in Frameworks */,
+				3966A0D720DD31D200DB3C14 /* Cocoa.framework in Frameworks */,
+				3966A0D520DD31C300DB3C14 /* CoreVideo.framework in Frameworks */,
 				3966A0C920DD092B00DB3C14 /* vulkan.framework in Frameworks */,
+				3969365620DE14A10016F2A4 /* libglfw3.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -73,6 +91,12 @@
 		3966A0C720DD092B00DB3C14 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				3969365520DE14A10016F2A4 /* libglfw3.a */,
+				3969364F20DD3B3C0016F2A4 /* QuartzCore.framework */,
+				3966A0DA20DD31EA00DB3C14 /* IOKit.framework */,
+				3966A0D820DD31E300DB3C14 /* OpenGL.framework */,
+				3966A0D620DD31D200DB3C14 /* Cocoa.framework */,
+				3966A0D420DD31C300DB3C14 /* CoreVideo.framework */,
 				3966A0C820DD092B00DB3C14 /* vulkan.framework */,
 			);
 			name = Frameworks;
@@ -261,7 +285,13 @@
 				HEADER_SEARCH_PATHS = (
 					/usr/local/Cellar/glm/0.9.9.0/include,
 					"/usr/local/lib/vulkansdk-macos/macOS/include",
+					/usr/local/Cellar/glfw/3.1.2/include,
 				);
+				LIBRARY_SEARCH_PATHS = (
+					/usr/local/lib/glfw/build/src,
+					/usr/local/Cellar/glfw/3.1.2/lib,
+				);
+				OTHER_LDFLAGS = "";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Debug;
@@ -277,7 +307,13 @@
 				HEADER_SEARCH_PATHS = (
 					/usr/local/Cellar/glm/0.9.9.0/include,
 					"/usr/local/lib/vulkansdk-macos/macOS/include",
+					/usr/local/Cellar/glfw/3.1.2/include,
 				);
+				LIBRARY_SEARCH_PATHS = (
+					/usr/local/lib/glfw/build/src,
+					/usr/local/Cellar/glfw/3.1.2/lib,
+				);
+				OTHER_LDFLAGS = "";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Release;
