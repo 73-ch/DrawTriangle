@@ -19,6 +19,7 @@
 // lambda function用　主にresorce management
 #include <functional>
 #include <vector>
+#include <map>
 // EXIT_SUCCESSとEXIT_FAILUREを提供する
 #include <cstdlib>
 
@@ -52,6 +53,14 @@ void DestroyDebugReportCallbackEXT(VkInstance instance, VkDebugReportCallbackEXT
     }
 }
 
+struct QueueFamilyIndices {
+    int graphicsFamily = -1;
+    
+    bool isComplete() {
+        return graphicsFamily >= 0;
+    }
+};
+
 class HelloTriangleApplication {
 public:
     void run() {
@@ -79,6 +88,7 @@ private:
     void initVulkan() {
         createInstance();
         setupDebugCallback();
+        pickPhysicalDevice();
     }
     
     void mainLoop() {
@@ -147,6 +157,138 @@ private:
         if (CreateDebugReportCallbackEXT(instance, &createInfo, nullptr, &callback) != VK_SUCCESS) {
             throw std::runtime_error("failed to set up debug callback!");
         }
+    }
+    
+    void pickPhysicalDevice() {
+        // 使用する物理デバイスを選択する
+        VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+        
+        uint32_t deviceCount = 0;
+        vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+        
+        if (deviceCount == 0) {
+            throw std::runtime_error("failed to find GPUs with Vulkan support!");
+        }
+        
+        std::vector<VkPhysicalDevice> devices(deviceCount);
+        vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+        
+        
+        // 標準的なデバイスの選定
+//        for (const auto& device : devices) {
+//            if (isDeviceSuitable(device)) {
+//                physicalDevice = device;
+//                break;
+//            }
+//        }
+        
+        // 例えば一番高い性能のGPUを使いたい場合
+        std::multimap<int, VkPhysicalDevice> candidates;
+        
+        for (const auto& device : devices) {
+            int score = rateDeviceSuitability(device);
+            candidates.insert(std::make_pair(score, device));
+        }
+        
+        // 一番高いscoreを持つGPUセットする
+        if (candidates.rbegin()->first > 0) {
+            physicalDevice = candidates.rbegin()->second;
+        } else {
+            throw std::runtime_error("failed to find a suitable GPU!");
+        }
+        
+        
+        if (physicalDevice == VK_NULL_HANDLE) {
+            throw std::runtime_error("failed to find a suitable GPU!");
+        }
+        // 例えば一番高い性能のGPUを使いたい場合 終わり
+    }
+    
+    // 例えば使用できるデバイスの中で一番高いものを使用したい場合
+    int rateDeviceSuitability(VkPhysicalDevice device) {
+        // 基本的な名前・タイプ・サポートされているVulkanのバージョンなどを取得することができる
+        VkPhysicalDeviceProperties deviceProperties;
+        vkGetPhysicalDeviceProperties(device, &deviceProperties);
+        // VR向けのマルチビューポートや圧縮テクスチャ、64bit浮動小数点などのオプション機能
+        VkPhysicalDeviceFeatures deviceFeatures;
+        vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+        
+        // 前略
+        
+        int score = 0;
+        
+        // Discrete GPUs have a significant performance advantage
+        if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+            score += 1000;
+        }
+        
+        // Maximum possible GPUs have a significant performance advantage
+        score += deviceProperties.limits.maxImageDimension2D;
+        
+        // Application can't function without geometry shaders
+//        if (!deviceFeatures.geometryShader) {
+//            return 0;
+//        }
+        
+        QueueFamilyIndices indices = findQueueFamilies(device);
+        
+        if (indices.isComplete()) {
+            std::runtime_error("device doesn not support graphic API!");
+        }
+        
+        std::cout << "device name : " << deviceProperties.deviceName << std::endl;
+        std::cout << "\t" << "device type : " << deviceProperties.deviceType << std::endl;
+        std::cout << "\t" << "device score : " << score << std::endl;
+        
+        return score;
+        
+    }
+    
+    
+    bool isDeviceSuitable(VkPhysicalDevice device) {
+        // この関数で、GPUなどが実際に使いたい機能を使えるかを判断する
+        
+        // 基本的な名前・タイプ・サポートされているVulkanのバージョンなどを取得することができる
+        VkPhysicalDeviceProperties deviceProperties;
+        vkGetPhysicalDeviceProperties(device, &deviceProperties);
+        
+        // VR向けのマルチビューポートや圧縮テクスチャ、64bit浮動小数点などのオプション機能
+        VkPhysicalDeviceFeatures deviceFeatures;
+        vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+
+        // 例えば、geometry shaderを使いたい場合は以下のようにする
+//        return deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU && deviceFeatures.geometryShader;
+        
+//        return true;
+        
+        QueueFamilyIndices indices = findQueueFamilies(device);
+        
+        return indices.isComplete();
+    }
+    
+    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
+        QueueFamilyIndices indices;
+        
+        uint32_t queueFamilyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+        
+        std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+        
+        int i = 0;
+        for (const auto& queueFamily : queueFamilies) {
+            if (queueFamily.queueCount > 0 && queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                indices.graphicsFamily = i;
+            }
+            
+            if (indices.isComplete()) {
+                break;
+            }
+            
+            ++i;
+        }
+        
+        return indices;
     }
     
     std::vector<const char*> getRequiredExtensions() {
