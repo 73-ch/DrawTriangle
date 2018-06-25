@@ -16,7 +16,7 @@
 // errorやlog用
 #include <iostream>
 #include <stdexcept>
-// lambda function用　主にresorce management
+// lambda function用　主にresorce management
 #include <functional>
 #include <vector>
 // EXIT_SUCCESSとEXIT_FAILUREを提供する
@@ -25,6 +25,32 @@
 
 const int WIDTH = 800;
 const int HEIGHT = 600;
+
+const std::vector<const char*> validationLayers = {
+    "VK_LAYER_LUNARG_standard_validation"
+};
+
+#ifdef NDEBUG
+    const bool enableValidationLayers = false;
+#else
+    const bool enableValidationLayers = true;
+#endif
+
+VkResult CreateDebugReportCallbackEXT(VkInstance instance, const VkDebugReportCallbackCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugReportCallbackEXT* pCallback) {
+    auto func = (PFN_vkCreateDebugReportCallbackEXT) vkGetInstanceProcAddr(instance, "vkCreateDebugReportCallbackEXT");
+    if (func != nullptr) {
+        return func(instance, pCreateInfo, pAllocator, pCallback);
+    } else {
+        return VK_ERROR_EXTENSION_NOT_PRESENT;
+    }
+}
+
+void DestroyDebugReportCallbackEXT(VkInstance instance, VkDebugReportCallbackEXT callback, const VkAllocationCallbacks* pAllocator) {
+    auto func = (PFN_vkDestroyDebugReportCallbackEXT) vkGetInstanceProcAddr(instance, "vkDestroyDebugReportCallbackEXT");
+    if (func != nullptr) {
+        func(instance, callback, pAllocator);
+    }
+}
 
 class HelloTriangleApplication {
 public:
@@ -37,7 +63,9 @@ public:
     
 private:
     GLFWwindow* window;
+    
     VkInstance instance;
+    VkDebugReportCallbackEXT callback;
     
     void initWindow() {
         glfwInit();
@@ -50,6 +78,7 @@ private:
     }
     void initVulkan() {
         createInstance();
+        setupDebugCallback();
     }
     
     void mainLoop() {
@@ -59,6 +88,10 @@ private:
     }
     
     void cleanup() {
+        if (enableValidationLayers) {
+            DestroyDebugReportCallbackEXT(instance, callback, nullptr);
+        }
+        
         vkDestroyInstance(instance, nullptr);
         
         glfwDestroyWindow(window);
@@ -67,6 +100,10 @@ private:
     }
     
     void createInstance() {
+        if (enableValidationLayers && !checkValidationLayerSupport()) {
+            throw std::runtime_error("validation layers requested, but not avaliable!");
+        }
+        
         // application情報
         VkApplicationInfo appInfo = {};
         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -81,41 +118,78 @@ private:
         createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         createInfo.pApplicationInfo = &appInfo;
         
-        uint32_t glfwExtensionCount = 0;
-        const char** glfwExtensions;
+        // 検証レイヤーを通しつつ、extension関連の初期化
+        auto extensions = getRequiredExtensions();
+        createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+        createInfo.ppEnabledExtensionNames = extensions.data();
         
-        // glfwからデバイスごとに必要なextensionの情報をえて、createInfoに追加する
-        glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-        
-        if (glfwExtensionCount) {
-            std::cout << "requirement extensions:" << std::endl;
-            std::cout << "\t" << **glfwExtensions << std::endl;
+        if (enableValidationLayers) {
+            createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+            createInfo.ppEnabledLayerNames = validationLayers.data();
+        } else {
+            createInfo.enabledLayerCount = 0;
         }
-        
-        createInfo.enabledExtensionCount = glfwExtensionCount;
-        createInfo.ppEnabledExtensionNames = glfwExtensions;
-        
-        createInfo.enabledLayerCount = 0;
-        
-        uint32_t extensionCount = 0;
-        // 3つ目の変数をからにすると要素数を返す
-        vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
-        // 先ほどの要素数でvectorを初期化して、サポートされている拡張機能とその詳細のリストを取得する
-        
-        std::vector<VkExtensionProperties> extensions(extensionCount);
-        vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data());
-        
-        std::cout << "avaliable extensions:" << std::endl;
-        
-        for (const auto& extension : extensions) {
-            std::cout << "\t" << extension.extensionName << std::endl;
-        }
-        
 
         // ここでようやくインスタンスを作る
         if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {
             throw std::runtime_error("failed to create instance!");
         }
+    }
+    
+    void setupDebugCallback() {
+        if (!enableValidationLayers) return;
+        
+        VkDebugReportCallbackCreateInfoEXT createInfo = {};
+        createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
+        createInfo.flags = VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT;
+        createInfo.pfnCallback = debugCallback;
+        
+        if (CreateDebugReportCallbackEXT(instance, &createInfo, nullptr, &callback) != VK_SUCCESS) {
+            throw std::runtime_error("failed to set up debug callback!");
+        }
+    }
+    
+    std::vector<const char*> getRequiredExtensions() {
+        uint32_t glfwExtensionCount = 0;
+        const char** glfwExtensions;
+        glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+        
+        std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+        
+        if (enableValidationLayers) {
+            extensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
+        }
+        
+        return extensions;
+    }
+    
+    bool checkValidationLayerSupport() {
+        uint32_t layerCount;
+        vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+        
+        std::vector<VkLayerProperties> avaliableLayers(layerCount);
+        vkEnumerateInstanceLayerProperties(&layerCount, avaliableLayers.data());
+        
+        for (const char* layerName : validationLayers) {
+            bool layerFound = false;
+            std::cout << "layerName : " << std::endl;
+            for (const auto& layerProperties : avaliableLayers) {
+                if (strcmp(layerName, layerProperties.layerName) == 0) {
+                    layerFound = true;
+                    break;
+                }
+            }
+            
+            if(!layerFound) return false;
+        }
+        
+        return true;
+    }
+    
+    static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objType, uint64_t obj, size_t location, int32_t code, const char* layerPrefix, const char* msg, void* userDate) {
+        std::cerr << "validation layer: " << msg << std::endl;
+        
+        return VK_FALSE;
     }
 };
 
