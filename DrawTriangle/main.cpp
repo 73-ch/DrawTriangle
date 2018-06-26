@@ -8,6 +8,8 @@
 
 #define GLFW_INCLUDE_VULKAN
 
+using namespace std;
+
 // 3DCG ライブラリ
 #include <vulkan/vulkan.h>
 //#include <glm/glm.hpp>
@@ -21,6 +23,7 @@
 #include <vector>
 #include <map>
 #include <set>
+#include <algorithm>
 // EXIT_SUCCESSとEXIT_FAILUREを提供する
 #include <cstdlib>
 
@@ -28,8 +31,12 @@
 const int WIDTH = 800;
 const int HEIGHT = 600;
 
-const std::vector<const char*> validationLayers = {
+const vector<const char*> validationLayers = {
     "VK_LAYER_LUNARG_standard_validation"
+};
+
+const vector<const char*> deviceExtensions = {
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
 #ifdef NDEBUG
@@ -63,6 +70,13 @@ struct QueueFamilyIndices {
     }
 };
 
+// スワップチェーンについて調べる必要があること
+struct SwapChainSupportDetails {
+    VkSurfaceCapabilitiesKHR capabilities; // 何枚貯めて置けるかと画像のサイズ、それぞれのmin/max
+    vector<VkSurfaceFormatKHR> formats; // ピクセルフォーマット、色関連
+    vector<VkPresentModeKHR> presentModes; // どんな風に変えるか
+};
+
 void error_callback(int error, const char* description) {
     puts(description);
 }
@@ -89,9 +103,14 @@ private:
     VkQueue graphicsQueue;
     VkQueue presentQueue;
     
+    VkSwapchainKHR swapChain;
+    vector<VkImage> swapChainImages;
+    VkFormat swapChainImageFormat;
+    VkExtent2D swapChainExtent;
+    
     void initWindow() {
         if (!glfwVulkanSupported()) {
-            std::cout << "vulkan loader not found!" << std::endl;
+            cout << "vulkan loader not found!" << endl;
         }
         
         glfwInit();
@@ -109,6 +128,7 @@ private:
         createSurface();
         pickPhysicalDevice();
         createLogicalDevice();
+        createSwapChain();
     }
     
     void mainLoop() {
@@ -118,6 +138,7 @@ private:
     }
     
     void cleanup() {
+        vkDestroySwapchainKHR(device, swapChain, nullptr);
         vkDestroyDevice(device, nullptr);
         
         if (enableValidationLayers) {
@@ -134,7 +155,7 @@ private:
     
     void createInstance() {
         if (enableValidationLayers && !checkValidationLayerSupport()) {
-            throw std::runtime_error("validation layers requested, but not avaliable!");
+            throw runtime_error("validation layers requested, but not avaliable!");
         }
         
         // application情報
@@ -165,7 +186,7 @@ private:
 
         // ここでようやくインスタンスを作る
         if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {
-            throw std::runtime_error("failed to create instance!");
+            throw runtime_error("failed to create instance!");
         }
     }
     
@@ -178,7 +199,7 @@ private:
         createInfo.pfnCallback = debugCallback;
         
         if (CreateDebugReportCallbackEXT(instance, &createInfo, nullptr, &callback) != VK_SUCCESS) {
-            throw std::runtime_error("failed to set up debug callback!");
+            throw runtime_error("failed to set up debug callback!");
         }
     }
     
@@ -189,10 +210,10 @@ private:
         vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
         
         if (deviceCount == 0) {
-            throw std::runtime_error("failed to find GPUs with Vulkan support!");
+            throw runtime_error("failed to find GPUs with Vulkan support!");
         }
         
-        std::vector<VkPhysicalDevice> devices(deviceCount);
+        vector<VkPhysicalDevice> devices(deviceCount);
         vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
         
         
@@ -205,23 +226,23 @@ private:
 //        }
         
         // 例えば一番高い性能のGPUを使いたい場合
-        std::multimap<int, VkPhysicalDevice> candidates;
+        multimap<int, VkPhysicalDevice> candidates;
         
         for (const auto& device : devices) {
             int score = rateDeviceSuitability(device);
-            candidates.insert(std::make_pair(score, device));
+            candidates.insert(make_pair(score, device));
         }
         
         // 一番高いscoreを持つGPUセットする
         if (candidates.rbegin()->first > 0) {
             physicalDevice = candidates.rbegin()->second;
         } else {
-            throw std::runtime_error("failed to find a suitable GPU!");
+            throw runtime_error("failed to find a suitable GPU!");
         }
         
         
         if (physicalDevice == VK_NULL_HANDLE) {
-            throw std::runtime_error("failed to find a suitable GPU!");
+            throw runtime_error("failed to find a suitable GPU!");
         }
         // 例えば一番高い性能のGPUを使いたい場合 終わり
     }
@@ -229,8 +250,8 @@ private:
     void createLogicalDevice() {
         QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
         
-        std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-        std::set<int> uniqueQueueFamilies = {indices.graphicsFamily, indices.presentFamily};
+        vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+        set<int> uniqueQueueFamilies = {indices.graphicsFamily, indices.presentFamily};
         
         float queuePriority = 1.0f;
         for (int queueFamily : uniqueQueueFamilies) {
@@ -252,7 +273,8 @@ private:
         
         createInfo.pEnabledFeatures = &deviceFeatures;
         
-        createInfo.enabledExtensionCount = 0;
+        createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
+        createInfo.ppEnabledExtensionNames = deviceExtensions.data();
         
         if (enableValidationLayers) {
             createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
@@ -262,7 +284,7 @@ private:
         }
         
         if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS) {
-            throw std::runtime_error("failed to create logical device!");
+            throw runtime_error("failed to create logical device!");
         }
         
         vkGetDeviceQueue(device, indices.graphicsFamily, 0, &graphicsQueue);
@@ -271,11 +293,74 @@ private:
     
     void createSurface() {
         // glfwの簡単にウィンドウを作ってくれるやつ
-        std::cout << glfwCreateWindowSurface(instance, window, nullptr, &surface) << std::endl;
+        cout << glfwCreateWindowSurface(instance, window, nullptr, &surface) << endl;
         
         if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
-            throw std::runtime_error("failed to create window surface!");
+            throw runtime_error("failed to create window surface!");
         }
+    }
+    
+    void createSwapChain() {
+        SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
+        
+        VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
+        
+        VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
+        
+        VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
+        
+        uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
+        if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount) {
+            imageCount = swapChainSupport.capabilities.maxImageCount;
+        }
+        
+        // スワップチェーン作るための細かい設定たち
+        VkSwapchainCreateInfoKHR createInfo = {};
+        createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        createInfo.surface = surface;
+        
+        createInfo.minImageCount = imageCount;
+        createInfo.imageFormat = surfaceFormat.format;
+        createInfo.imageColorSpace = surfaceFormat.colorSpace;
+        createInfo.imageExtent = extent;
+        createInfo.imageArrayLayers = 1;
+        createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        
+        // どのように複数のキューでスワップチェーンを使用するかの設定
+        QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+        uint32_t queueFamilyIndices[] = {(uint32_t) indices.graphicsFamily, (uint32_t) indices.presentFamily};
+        
+        if (indices.graphicsFamily != indices.presentFamily) {
+            createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+            createInfo.queueFamilyIndexCount = 2;
+            createInfo.pQueueFamilyIndices = queueFamilyIndices;
+        } else {
+            createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            createInfo.queueFamilyIndexCount = 0;
+            createInfo.pQueueFamilyIndices = nullptr;
+        }
+        
+        createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
+        
+        // ウィンドウを透過して他のウィンドウをアルファブレンディングで表示するかどうか
+        createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        
+        createInfo.presentMode = presentMode;
+        // 他のウィンドウが前にきたときに、そのウィンドウのピクセルの色を知りたいときなどにVK_FALSEにして使う(TRUEの場合は前面のウィンドウを無視する)
+        createInfo.clipped = VK_TRUE;
+        // スクリーンのリサイズ時などにスワップチェーンで作られるべきバッファが作成されなかったときに、古いものへの参照を指定することができる（後のチャプターで解説）
+        createInfo.oldSwapchain = VK_NULL_HANDLE;
+        
+        if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapChain) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create swap chain!");
+        }
+        
+        vkGetSwapchainImagesKHR(device, swapChain, &imageCount, nullptr);
+        swapChainImages.resize(imageCount);
+        vkGetSwapchainImagesKHR(device, swapChain, &imageCount, swapChainImages.data());
+        
+        swapChainImageFormat = surfaceFormat.format;
+        swapChainExtent = extent;
     }
     
     // 例えば使用できるデバイスの中で一番高いものを使用したい場合
@@ -307,15 +392,118 @@ private:
         QueueFamilyIndices indices = findQueueFamilies(device);
         
         if (indices.isComplete()) {
-            std::runtime_error("device doesn not support graphic API!");
+            runtime_error("device does not support graphic API!");
         }
         
-        std::cout << "device name : " << deviceProperties.deviceName << std::endl;
-        std::cout << "\t" << "device type : " << deviceProperties.deviceType << std::endl;
-        std::cout << "\t" << "device score : " << score << std::endl;
+        if (checkDeviceExtensionSupport(device)) {
+            runtime_error("device extension does not supported");
+        }
+        
+        SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
+        if (!swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty()) {
+            runtime_error("Swap chain support is not sufficient");
+        }
+        
+        cout << "device name : " << deviceProperties.deviceName << endl;
+        cout << "\t" << "device type : " << deviceProperties.deviceType << endl;
+        cout << "\t" << "device score : " << score << endl;
         
         return score;
         
+    }
+    
+    
+    // デバイスの拡張機能(スワップチェーンなど)をサポートしているかを確認
+    bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
+        uint32_t extensionCount;
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
+        
+        vector<VkExtensionProperties> avaliableExtensions(extensionCount);
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, avaliableExtensions.data());
+        
+        set<string> requiredExtensions(deviceExtensions.begin(), deviceExtensions.end());
+        
+        for (const auto& extension : avaliableExtensions) {
+            requiredExtensions.erase(extension.extensionName);
+        }
+        
+        return requiredExtensions.empty();
+    }
+    
+    // バッファの画像サイズの選択
+    VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) {
+        if (capabilities.currentExtent.width != numeric_limits<uint32_t>::max()) {
+            return capabilities.currentExtent;
+        } else {
+            VkExtent2D actualExtent = {WIDTH, HEIGHT};
+            
+            actualExtent.width = max(capabilities.minImageExtent.width, min(capabilities.maxImageExtent.width, actualExtent.width));
+            actualExtent.height = max(capabilities.minImageExtent.height, min(capabilities.maxImageExtent.height, actualExtent.height));
+            
+            return actualExtent;
+        }
+    }
+    
+    // どのように画像差し替えるか
+    VkPresentModeKHR chooseSwapPresentMode(const vector<VkPresentModeKHR> avaliablePresentModes) {
+        // 基本的にはVertidcal Sync（正確には違う？）で
+        VkPresentModeKHR bestMode = VK_PRESENT_MODE_FIFO_KHR;
+        
+        // できればトリプルバッファリングでやりたい
+        for (const auto& avaliablePresentMode : avaliablePresentModes) {
+            if (avaliablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+                return avaliablePresentMode;
+            } else if (avaliablePresentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
+                // 最悪これ使うしかない
+                bestMode = avaliablePresentMode;
+            }
+        }
+        return bestMode;
+    }
+    
+    // バッファのフォーマット
+    VkSurfaceFormatKHR chooseSwapSurfaceFormat(const vector<VkSurfaceFormatKHR>& avaliableFormats) {
+        // もし、使えるフォーマットが使いたいフォーマットだけならそれ使う
+        if (avaliableFormats.size() == 1 && avaliableFormats[0].format == VK_FORMAT_UNDEFINED) {
+            return {VK_FORMAT_B8G8R8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
+        }
+        
+        // 使いたいフォーマットがあるか探す
+        for (const auto& avaliableFormat : avaliableFormats) {
+            if (avaliableFormat.format == VK_FORMAT_B8G8R8_UNORM && avaliableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                return avaliableFormat;
+            }
+        }
+        
+        // いいのがなかったら一番目使っとけ
+        return avaliableFormats[0];
+    }
+    
+    SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) {
+        SwapChainSupportDetails details;
+        
+        // キャパビリティ
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
+        
+        // フォーマット・カラー
+        uint32_t formatCount;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(device ,surface, &formatCount, nullptr);
+        
+        if (formatCount != 0) {
+            details.formats.resize(formatCount);
+            vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats.data());
+        }
+        
+        // プレゼンテーションモード
+        uint32_t presentModeCount;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
+        
+        if (presentModeCount != 0) {
+            details.presentModes.resize(presentModeCount);
+            vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details.presentModes.data());
+        }
+        
+        return details;
     }
     
     
@@ -346,7 +534,7 @@ private:
         uint32_t queueFamilyCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
         
-        std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+        vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
         
         int i = 0;
@@ -372,12 +560,12 @@ private:
         return indices;
     }
     
-    std::vector<const char*> getRequiredExtensions() {
+    vector<const char*> getRequiredExtensions() {
         uint32_t glfwExtensionCount = 0;
         const char** glfwExtensions;
         glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
         
-        std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+        vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
 
         if (enableValidationLayers) {
             extensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
@@ -390,12 +578,12 @@ private:
         uint32_t layerCount;
         vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
         
-        std::vector<VkLayerProperties> avaliableLayers(layerCount);
+        vector<VkLayerProperties> avaliableLayers(layerCount);
         vkEnumerateInstanceLayerProperties(&layerCount, avaliableLayers.data());
         
         for (const char* layerName : validationLayers) {
             bool layerFound = false;
-            std::cout << "layerName : " << std::endl;
+            cout << "layerName : " << endl;
             for (const auto& layerProperties : avaliableLayers) {
                 if (strcmp(layerName, layerProperties.layerName) == 0) {
                     layerFound = true;
@@ -410,7 +598,7 @@ private:
     }
     
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objType, uint64_t obj, size_t location, int32_t code, const char* layerPrefix, const char* msg, void* userDate) {
-        std::cerr << "validation layer: " << msg << std::endl;
+        cerr << "validation layer: " << msg << endl;
         
         return VK_FALSE;
     }
@@ -421,8 +609,8 @@ int main(int argc, const char * argv[]) {
 
     try {
         app.run();
-    } catch (const std::runtime_error& e) {
-        std::cerr << e.what() << std::endl;
+    } catch (const runtime_error& e) {
+        cerr << e.what() << endl;
         return EXIT_FAILURE;
     }
 
