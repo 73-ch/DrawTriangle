@@ -10,7 +10,7 @@
 
 // 3DCG ライブラリ
 #include <vulkan/vulkan.h>
-#include <glm/glm.hpp>
+//#include <glm/glm.hpp>
 #include <GLFW/glfw3.h>
 
 // errorやlog用
@@ -20,6 +20,7 @@
 #include <functional>
 #include <vector>
 #include <map>
+#include <set>
 // EXIT_SUCCESSとEXIT_FAILUREを提供する
 #include <cstdlib>
 
@@ -55,11 +56,16 @@ void DestroyDebugReportCallbackEXT(VkInstance instance, VkDebugReportCallbackEXT
 
 struct QueueFamilyIndices {
     int graphicsFamily = -1;
+    int presentFamily = -1;
     
     bool isComplete() {
-        return graphicsFamily >= 0;
+        return graphicsFamily >= 0 && presentFamily >= 0;
     }
 };
+
+void error_callback(int error, const char* description) {
+    puts(description);
+}
 
 class HelloTriangleApplication {
 public:
@@ -75,13 +81,19 @@ private:
     
     VkInstance instance;
     VkDebugReportCallbackEXT callback;
+    VkSurfaceKHR surface;
     
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     VkDevice device;
     
     VkQueue graphicsQueue;
+    VkQueue presentQueue;
     
     void initWindow() {
+        if (!glfwVulkanSupported()) {
+            std::cout << "vulkan loader not found!" << std::endl;
+        }
+        
         glfwInit();
         glfwGetTime();
 
@@ -91,8 +103,10 @@ private:
         window = glfwCreateWindow(800, 600, "Vulkan Test!!", nullptr, nullptr);
     }
     void initVulkan() {
+        glfwSetErrorCallback(error_callback);
         createInstance();
         setupDebugCallback();
+        createSurface();
         pickPhysicalDevice();
         createLogicalDevice();
     }
@@ -110,6 +124,7 @@ private:
             DestroyDebugReportCallbackEXT(instance, callback, nullptr);
         }
         
+        vkDestroySurfaceKHR(instance, surface, nullptr);
         vkDestroyInstance(instance, nullptr);
         
         glfwDestroyWindow(window);
@@ -214,22 +229,26 @@ private:
     void createLogicalDevice() {
         QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
         
-        VkDeviceQueueCreateInfo queueCreateInfo = {};
-        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueCreateInfo.queueFamilyIndex = indices.graphicsFamily;
-        queueCreateInfo.queueCount = 1;
+        std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+        std::set<int> uniqueQueueFamilies = {indices.graphicsFamily, indices.presentFamily};
         
         float queuePriority = 1.0f;
-        queueCreateInfo.pQueuePriorities = &queuePriority;
-        
+        for (int queueFamily : uniqueQueueFamilies) {
+            VkDeviceQueueCreateInfo queueCreateInfo = {};
+            queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queueCreateInfo.queueFamilyIndex = queueFamily;
+            queueCreateInfo.queueCount = 1;
+            queueCreateInfo.pQueuePriorities = &queuePriority;
+            queueCreateInfos.push_back(queueCreateInfo);
+        }
         
         VkPhysicalDeviceFeatures deviceFeatures = {};
         
         VkDeviceCreateInfo createInfo = {};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         
-        createInfo.pQueueCreateInfos = &queueCreateInfo;
-        createInfo.queueCreateInfoCount = 1;
+        createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
+        createInfo.pQueueCreateInfos = queueCreateInfos.data();
         
         createInfo.pEnabledFeatures = &deviceFeatures;
         
@@ -247,6 +266,16 @@ private:
         }
         
         vkGetDeviceQueue(device, indices.graphicsFamily, 0, &graphicsQueue);
+        vkGetDeviceQueue(device, indices.presentFamily, 0, &presentQueue);
+    }
+    
+    void createSurface() {
+        // glfwの簡単にウィンドウを作ってくれるやつ
+        std::cout << glfwCreateWindowSurface(instance, window, nullptr, &surface) << std::endl;
+        
+        if (glfwCreateWindowSurface(instance, window, nullptr, &surface) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create window surface!");
+        }
     }
     
     // 例えば使用できるデバイスの中で一番高いものを使用したい場合
@@ -326,6 +355,13 @@ private:
                 indices.graphicsFamily = i;
             }
             
+            VkBool32 presentSupport = false;
+            vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+            
+            if (queueFamily.queueCount  > 0 && presentSupport) {
+                indices.presentFamily = i;
+            }
+            
             if (indices.isComplete()) {
                 break;
             }
@@ -342,7 +378,7 @@ private:
         glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
         
         std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
-        
+
         if (enableValidationLayers) {
             extensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
         }
@@ -382,13 +418,13 @@ private:
 
 int main(int argc, const char * argv[]) {
     HelloTriangleApplication app;
-    
+
     try {
         app.run();
     } catch (const std::runtime_error& e) {
         std::cerr << e.what() << std::endl;
         return EXIT_FAILURE;
     }
-    
+
     return EXIT_SUCCESS;
 }
