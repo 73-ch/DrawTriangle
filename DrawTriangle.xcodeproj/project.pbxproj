@@ -12,6 +12,7 @@
 		3968ADBE20E21AB000906D9E /* libvulkan.1.1.73.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 3968ADBD20E21AB000906D9E /* libvulkan.1.1.73.dylib */; };
 		3968ADC220E21E8B00906D9E /* libglfw.3.3.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 3968ADC120E21E8B00906D9E /* libglfw.3.3.dylib */; };
 		3968ADE520E2326C00906D9E /* libglfw.3.3.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 3968ADC120E21E8B00906D9E /* libglfw.3.3.dylib */; };
+		39F062D420E377E9001B047C /* shaders in CopyFiles */ = {isa = PBXBuildFile; fileRef = 39F062D320E37049001B047C /* shaders */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -19,8 +20,9 @@
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 12;
 			dstPath = "";
-			dstSubfolderSpec = 10;
+			dstSubfolderSpec = 7;
 			files = (
+				39F062D420E377E9001B047C /* shaders in CopyFiles */,
 				3968ADBE20E21AB000906D9E /* libvulkan.1.1.73.dylib in CopyFiles */,
 				3968ADC220E21E8B00906D9E /* libglfw.3.3.dylib in CopyFiles */,
 			);
@@ -35,6 +37,7 @@
 		3968ADB920E21A9800906D9E /* libvulkan.1.1.73.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libvulkan.1.1.73.dylib; path = "../../../../../usr/local/lib/vulkansdk-macos/macOS/lib/libvulkan.1.1.73.dylib"; sourceTree = "<group>"; };
 		3968ADBD20E21AB000906D9E /* libvulkan.1.1.73.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libvulkan.1.1.73.dylib; path = "../../../../../usr/local/lib/vulkansdk-macos/macOS/lib/libvulkan.1.1.73.dylib"; sourceTree = "<group>"; };
 		3968ADC120E21E8B00906D9E /* libglfw.3.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libglfw.3.3.dylib; path = "../../../../../usr/local/Cellar/glfw/HEAD-0be4f3f/lib/libglfw.3.3.dylib"; sourceTree = "<group>"; };
+		39F062D320E37049001B047C /* shaders */ = {isa = PBXFileReference; lastKnownFileType = folder; path = shaders; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -73,6 +76,7 @@
 		3966A0BF20DD06FF00DB3C14 /* DrawTriangle */ = {
 			isa = PBXGroup;
 			children = (
+				39F062D320E37049001B047C /* shaders */,
 				3966A0C020DD06FF00DB3C14 /* main.cpp */,
 			);
 			path = DrawTriangle;

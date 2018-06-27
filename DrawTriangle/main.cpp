@@ -24,6 +24,7 @@ using namespace std;
 #include <map>
 #include <set>
 #include <algorithm>
+#include <fstream>
 // EXIT_SUCCESSとEXIT_FAILUREを提供する
 #include <cstdlib>
 
@@ -81,6 +82,24 @@ void error_callback(int error, const char* description) {
     puts(description);
 }
 
+static vector<char> readFile(const string& filename) {
+    ifstream file(filename, ios::ate | ios::binary);
+    
+    if (!file.is_open()) {
+        throw runtime_error("failed to open file!");
+    }
+    
+    size_t fileSize = (size_t) file.tellg();
+    vector<char> buffer(fileSize);
+    
+    file.seekg(0);
+    file.read(buffer.data(), fileSize);
+    
+    file.close();
+    
+    return buffer;
+}
+
 class HelloTriangleApplication {
 public:
     void run() {
@@ -110,6 +129,8 @@ private:
     
     vector<VkImageView> swapChainImageViews;
     
+    VkPipelineLayout pipelineLayout;
+    
     void initWindow() {
         if (!glfwVulkanSupported()) {
             cout << "vulkan loader not found!" << endl;
@@ -132,6 +153,7 @@ private:
         createLogicalDevice();
         createSwapChain();
         createImageViews();
+        createGraphicsPipeline();
     }
     
     void mainLoop() {
@@ -141,6 +163,8 @@ private:
     }
     
     void cleanup() {
+        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+        
         for (auto imageView : swapChainImageViews) {
             vkDestroyImageView(device, imageView, nullptr);
         }
@@ -401,6 +425,176 @@ private:
             }
         }
         
+    }
+    
+    void createGraphicsPipeline() {
+        auto vertShaderCode = readFile("shaders/vert.spv");
+        auto fragShaderCode = readFile("shaders/frag.spv");
+        
+        cout << "vertShaderFile size : " << vertShaderCode.size() << "bytes" << endl;
+        cout << "fragShaderFile size : " << fragShaderCode.size() << "bytes" << endl;
+        
+        VkShaderModule vertShaderModule;
+        VkShaderModule fragShaderModule;
+        
+        // shaderModuleの作成（この時点ではただのバッファのラッパで、お互いのリンクや何のシェーダかは決められていない）
+        vertShaderModule = createShaderModule(vertShaderCode);
+        fragShaderModule = createShaderModule(fragShaderCode);
+        
+        // shader stageの作成
+        VkPipelineShaderStageCreateInfo vertShaderStageInfo = {};
+        vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+        
+        vertShaderStageInfo.module = vertShaderModule;
+        vertShaderStageInfo.pName = "main"; // 最初に呼び出す関数の名前を指定
+    //        vertShaderStageInfo.pSpecializationInfo = // シェーダに定数を渡すことができる、参考:https://blogs.igalia.com/itoral/2018/03/20/improving-shader-performance-with-vulkans-specialization-constants/
+        
+        // レンダリングパイプラインに関する設定
+        VkPipelineShaderStageCreateInfo fragShaderStageInfo = {};
+        fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        fragShaderStageInfo.module = fragShaderModule;
+        fragShaderStageInfo.pName = "main";
+        // (プログラマブル部分の）レンダリングパイプラインの作成
+        VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+        
+        // 頂点シェーダーに渡す情報の設定
+        VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
+        vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vertexInputInfo.vertexBindingDescriptionCount = 0; // 頂点シェーダへの頂点データの数
+        vertexInputInfo.pVertexBindingDescriptions = nullptr; // 頂点データのポインタ
+        vertexInputInfo.vertexAttributeDescriptionCount = 0; // attributeの数
+        vertexInputInfo.pVertexAttributeDescriptions = nullptr; // attributeを表すVkVertexInputAttributeDescriptionのポインタ
+        
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
+        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST; // openglでいうGL_PRIMITIVE_MODE
+        inputAssembly.primitiveRestartEnable = VK_FALSE; // triangleとLineに分割できる???
+        
+        // viewport設定
+        VkViewport viewport = {};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = (float) swapChainExtent.width;
+        viewport.height = (float) swapChainExtent.height;
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        
+        // フレームバッファのトリミング範囲の設定
+        VkRect2D scissor = {};
+        scissor.offset = {0,0};
+        scissor.extent = swapChainExtent;
+        
+        // viewportとトリミング範囲の設定（それぞれ複数ずつ使用することも可能だが、その場合論理デバイスで設定する必要がある）
+        VkPipelineViewportStateCreateInfo viewportStateCreateInfo = {};
+        viewportStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewportStateCreateInfo.viewportCount = 1;
+        viewportStateCreateInfo.pViewports = &viewport;
+        viewportStateCreateInfo.scissorCount = 1;
+        viewportStateCreateInfo.pScissors = &scissor;
+        
+        VkPipelineRasterizationStateCreateInfo rasterizationStateCreateInfo = {};
+        rasterizationStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rasterizationStateCreateInfo.depthClampEnable = VK_FALSE; // シャドウマップなどを作る際にクリッピング空間外のオブジェクトを破棄するのではなく、クランプしたい場合にVK_TRUEで使うことができる。（論理デバイスでGPU機能を有効化する必要がある）
+        rasterizationStateCreateInfo.rasterizerDiscardEnable = VK_FALSE; // ラスタライザをスキップするかどうか、基本的にスキップするとフレームバッファに書き込まれない
+        rasterizationStateCreateInfo.polygonMode = VK_POLYGON_MODE_FILL; // ポリゴンの塗りつぶし設定(FILLとLINEとPOINTがある）
+        rasterizationStateCreateInfo.lineWidth = 1.0f; // 1.0より太い太さを設定する場合、論理デバイスでGPU機能を有効化する必要がある
+        
+        // カリング周り
+        rasterizationStateCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+        rasterizationStateCreateInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        
+        // 深度値のバイアスを設定する。シャドウマップなどで、奥に行く時の補間方法などを細かく指定したい場合に使える
+        rasterizationStateCreateInfo.depthBiasEnable = VK_FALSE;
+//        rasterizationStateCreateInfo.depthBiasConstantFactor = 0.0f;
+//        rasterizationStateCreateInfo.depthBiasClamp = 0.0f;
+//        rasterizationStateCreateInfo.depthViasSlopeFactor = 0.0f;
+        
+        // マルチサンプリング（単純に大きい解像度でレンダリングしてから縮小をかけるより大幅にコストを下げることができる）、論理デバイスで要有効化
+        VkPipelineMultisampleStateCreateInfo multisampleStateCreateInfo = {};
+        multisampleStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisampleStateCreateInfo.sampleShadingEnable = VK_FALSE;
+//        multisampleStateCreateInfo.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+//        multisampleStateCreateInfo.minSampleShading = 1.0f;
+//        multisampleStateCreateInfo.pSampleMask = nullptr;
+//        multisampleStateCreateInfo.alphaToCoverageEnable = VK_FALSE;
+//        multisampleStateCreateInfo.alphaToOneEnable = VK_FALSE;
+        
+        // depth test & stencil test
+//        VkPipelineDepthStencilStateCreateInfo depthStencilStateCreateInfo;
+//        depthStencilStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        
+        // 各フレームバッファにブレンディングの設定を付加
+        VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
+        colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        colorBlendAttachment.blendEnable = VK_FALSE;
+        
+        // 例えばこんな感じ
+//        colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+//        colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+//        colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+//        colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+//        colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+//        colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+        
+        // アルファブレンディング
+//        colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+//        colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+//        colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+//        colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+//        colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+//        colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
+        VkPipelineColorBlendStateCreateInfo colorBlendStateCreateInfo = {};
+        colorBlendStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlendStateCreateInfo.logicOpEnable = VK_FALSE;
+        colorBlendStateCreateInfo.logicOp = VK_LOGIC_OP_COPY;
+        colorBlendStateCreateInfo.attachmentCount = 1;
+        colorBlendStateCreateInfo.pAttachments = &colorBlendAttachment;
+        colorBlendStateCreateInfo.blendConstants[0] = 0.0f;
+        colorBlendStateCreateInfo.blendConstants[1] = 0.0f;
+        colorBlendStateCreateInfo.blendConstants[2] = 0.0f;
+        colorBlendStateCreateInfo.blendConstants[3] = 0.0f;
+        
+        // 一部のパイプラインの設定は、動的に変更することができる、その場合Dynamic stateとしてあらかじめ登録しておく必要がある
+//        VkDynamicState dynamicStates[] = {
+//            VK_DYNAMIC_STATE_VIEWPORT,
+//            VK_DYNAMIC_STATE_LINE_WIDTH
+//        }
+//        VkPipelineDynamicStateCreateInfo dynamicStateCreateInfo = {};
+//        dynamicStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+//        dynamicStateCreateInfo.dynamicStateCount = 2;
+//        dynamicStateCreateInfo.pDynamicStates = dynamicStates;
+        
+        // uniform変数
+        VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
+        pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipelineLayoutCreateInfo.setLayoutCount = 0;
+        pipelineLayoutCreateInfo.pSetLayouts = nullptr;
+        pipelineLayoutCreateInfo.pushConstantRangeCount = 0;
+        pipelineLayoutCreateInfo.pPushConstantRanges = nullptr;
+        
+        if (vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
+            throw runtime_error("failed to create pipeline layout!");
+        }
+        
+        vkDestroyShaderModule(device, fragShaderModule, nullptr);
+        vkDestroyShaderModule(device, vertShaderModule, nullptr);
+    }
+    
+    VkShaderModule createShaderModule(const vector<char>& code) {
+        VkShaderModuleCreateInfo createInfo = {};
+        createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+        createInfo.codeSize = code.size();
+        createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
+        
+        VkShaderModule shaderModule;
+        if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
+            throw runtime_error("failed to create shader module!");
+        }
+        
+        return shaderModule;
     }
     
     // 例えば使用できるデバイスの中で一番高いものを使用したい場合
