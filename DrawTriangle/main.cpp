@@ -32,6 +32,8 @@ using namespace std;
 const int WIDTH = 800;
 const int HEIGHT = 600;
 
+const int MAX_FRAMES_IN_FLIGHT = 2;
+
 const vector<const char*> validationLayers = {
     "VK_LAYER_LUNARG_standard_validation"
 };
@@ -40,11 +42,7 @@ const vector<const char*> deviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
-#ifdef NDEBUG
-    const bool enableValidationLayers = false;
-#else
-    const bool enableValidationLayers = true;
-#endif
+const bool enableValidationLayers = true;
 
 VkResult CreateDebugReportCallbackEXT(VkInstance instance, const VkDebugReportCallbackCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugReportCallbackEXT* pCallback) {
     auto func = (PFN_vkCreateDebugReportCallbackEXT) vkGetInstanceProcAddr(instance, "vkCreateDebugReportCallbackEXT");
@@ -129,7 +127,20 @@ private:
     
     vector<VkImageView> swapChainImageViews;
     
+    VkRenderPass renderPass;
     VkPipelineLayout pipelineLayout;
+    
+    VkPipeline graphicsPipeline;
+    
+    vector<VkFramebuffer> swapChainFramebuffers;
+    
+    VkCommandPool commandPool;
+    vector<VkCommandBuffer> commandBuffers;
+    
+    vector<VkSemaphore> imageAvailableSemaphores;
+    vector<VkSemaphore> renderFinishedSemaphores;
+    vector<VkFence> inFlightFences;
+    size_t currentFrame = 0;
     
     void initWindow() {
         if (!glfwVulkanSupported()) {
@@ -153,17 +164,40 @@ private:
         createLogicalDevice();
         createSwapChain();
         createImageViews();
+        createRenderPass();
         createGraphicsPipeline();
+        createFramebuffers();
+        createCommandPool();
+        createCommandBuffers();
+        createSyncObjects();
     }
     
     void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
+            drawFrame();
         }
+        
+        // ウィンドウを閉じたときに、非同期処理なので、同期して終了するために必要
+        vkDeviceWaitIdle(device);
     }
     
     void cleanup() {
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
+            vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
+            vkDestroyFence(device, inFlightFences[i], nullptr);
+        }
+        
+        vkDestroyCommandPool(device, commandPool, nullptr);
+        
+        for (auto framebuffer : swapChainFramebuffers) {
+            vkDestroyFramebuffer(device, framebuffer, nullptr);
+        }
+        
+        vkDestroyPipeline(device, graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+        vkDestroyRenderPass(device, renderPass, nullptr);
         
         for (auto imageView : swapChainImageViews) {
             vkDestroyImageView(device, imageView, nullptr);
@@ -427,6 +461,66 @@ private:
         
     }
     
+    void createRenderPass() {
+        // レンダリング時に使用されるフレームバッファの数、そしてそれらのフォーマットやデプスバッファの有無、さらにそれらがどのようにレンダリング中に操作されるかを作成する
+        // attachmentは一つ一つのフレームバッファに関する設定
+        VkAttachmentDescription colorAttachment = {};
+        colorAttachment.format = swapChainImageFormat;
+        colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        
+        // レンダリング前と後でデータをどのように処理するか(colorとdepth)
+        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        
+        // 上のステンシル版
+        colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        
+        colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; // レンダーパスが始まる前
+        colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR; // レンダーパスが終了したときに自動的に遷移するレイアウト
+        
+        // subpass : レンダーパスの中で、ポストプロセッシングなどの前のフレームの情報が残されたままだと都合がいい場合に、それらの処理を一つにまとめることができる
+        // subpassは後でパフォーマンスがいいように順番を並べ替えることができる
+        VkAttachmentReference colorAttachmentRef = {};
+        colorAttachmentRef.attachment = 0; // subpassのインデックス（順番）
+        colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        
+        // Vulkanは将来的に計算用のsubpassも追加される予定なので、このサブパスがグラフィック用であることを明示する必要がある
+        VkSubpassDescription subpass = {};
+        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount = 1;
+        subpass.pColorAttachments = &colorAttachmentRef; // shaderからlayout(location = 0) out vec4 outColorのように, シェーダー側のlocationとsubpassのAttachmentのインデックスが一致している
+        
+        VkRenderPassCreateInfo renderPassCreateInfo = {};
+        renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        renderPassCreateInfo.attachmentCount = 1;
+        renderPassCreateInfo.pAttachments = &colorAttachment;
+        renderPassCreateInfo.subpassCount = 1;
+        renderPassCreateInfo.pSubpasses = &subpass;
+        
+        // Subpass同士の依存関係を示す（例：　このSubpassの次にこのSubpassを実行したいなど？）, 常にsrc<dstでないといけない
+        VkSubpassDependency dependency = {};
+        dependency.srcSubpass = VK_SUBPASS_EXTERNAL; // この定数は指定したSubpassたちの前に実行される暗黙のサブパス(内部システムのもの？)
+        dependency.dstSubpass = 0;
+        
+        // その操作が発生する段階
+        dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // スワップチェーンがイメージを読み込むのを待つ
+                                                                                 // 待機する操作
+        dependency.srcAccessMask = 0; // この場合は特に操作を指定していなくても、カラーアタッチメントのステージを待てば大丈夫
+        
+        // このSubpass内のどの操作を次の操作が待てばいいかを指定する
+        dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; //この場合、カラーアタッチメントのステージで
+        dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT; // 読み書きが終われば次の処理は走っても大丈夫
+        
+        renderPassCreateInfo.dependencyCount = 1;
+        renderPassCreateInfo.pDependencies = &dependency;
+        
+        if (vkCreateRenderPass(device, &renderPassCreateInfo, nullptr, &renderPass) != VK_SUCCESS) {
+            throw runtime_error("failed to create render pass!");
+        }
+        
+    }
+    
     void createGraphicsPipeline() {
         auto vertShaderCode = readFile("shaders/vert.spv");
         auto fragShaderCode = readFile("shaders/frag.spv");
@@ -515,7 +609,7 @@ private:
         VkPipelineMultisampleStateCreateInfo multisampleStateCreateInfo = {};
         multisampleStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         multisampleStateCreateInfo.sampleShadingEnable = VK_FALSE;
-//        multisampleStateCreateInfo.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+        multisampleStateCreateInfo.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 //        multisampleStateCreateInfo.minSampleShading = 1.0f;
 //        multisampleStateCreateInfo.pSampleMask = nullptr;
 //        multisampleStateCreateInfo.alphaToCoverageEnable = VK_FALSE;
@@ -571,16 +665,211 @@ private:
         VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
         pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         pipelineLayoutCreateInfo.setLayoutCount = 0;
-        pipelineLayoutCreateInfo.pSetLayouts = nullptr;
+//        pipelineLayoutCreateInfo.pSetLayouts = nullptr;
         pipelineLayoutCreateInfo.pushConstantRangeCount = 0;
-        pipelineLayoutCreateInfo.pPushConstantRanges = nullptr;
+//        pipelineLayoutCreateInfo.pPushConstantRanges = nullptr;
         
         if (vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
             throw runtime_error("failed to create pipeline layout!");
         }
         
+        VkGraphicsPipelineCreateInfo pipelineCreateInfo = {};
+        pipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineCreateInfo.stageCount = 2;
+        pipelineCreateInfo.pStages = shaderStages;
+        
+        // 今まで作ってきたやつをVkGraphicsPipelineCreateInfoにぶち込む
+        pipelineCreateInfo.pVertexInputState = &vertexInputInfo;
+        pipelineCreateInfo.pInputAssemblyState = &inputAssembly;
+        pipelineCreateInfo.pViewportState = &viewportStateCreateInfo;
+        pipelineCreateInfo.pRasterizationState = &rasterizationStateCreateInfo;
+        pipelineCreateInfo.pMultisampleState = &multisampleStateCreateInfo;
+//        pipelineCreateInfo.pDepthStencilState = nullptr;
+        pipelineCreateInfo.pColorBlendState = &colorBlendStateCreateInfo;
+//        pipelineCreateInfo.pDynamicState = nullptr;
+        
+        pipelineCreateInfo.layout = pipelineLayout;
+        
+        pipelineCreateInfo.renderPass = renderPass; // このパイプラインを他のレンダーパスで使用することもできる
+        pipelineCreateInfo.subpass = 0; // 使用するsubpassのインデックス
+        
+        // Vulkanでは既存のパイプラインから新しいパイプラインを作ることができ、そのときに別のパイプラインとの関連性を指定できる
+        pipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
+//        pipelineCreateInfo.basePipelineIndex = -1;
+        
+        // 本当は一回のコールで複数のパイプラインを同時に作れるように設計されている
+        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &graphicsPipeline) != VK_SUCCESS) {
+            throw runtime_error("failed to create graphics pipeline!");
+        }
+        
+        
+        
+        
         vkDestroyShaderModule(device, fragShaderModule, nullptr);
         vkDestroyShaderModule(device, vertShaderModule, nullptr);
+    }
+    
+    void createFramebuffers() {
+        swapChainFramebuffers.resize(swapChainImageViews.size());
+        
+        for (size_t i = 0; i < swapChainImageViews.size(); i++) {
+            VkImageView attachments[] = {
+                swapChainImageViews[i]
+            };
+            
+            VkFramebufferCreateInfo framebufferCreateInfo = {};
+            framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            framebufferCreateInfo.renderPass = renderPass;
+            framebufferCreateInfo.attachmentCount = 1;
+            framebufferCreateInfo.pAttachments = attachments;
+            framebufferCreateInfo.width = swapChainExtent.width;
+            framebufferCreateInfo.height = swapChainExtent.height;
+            framebufferCreateInfo.layers = 1;
+            
+            if (vkCreateFramebuffer(device, &framebufferCreateInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS) {
+                throw runtime_error("failed to create framebuffer!");
+            }
+        }
+    }
+    
+    void createCommandPool() {
+        QueueFamilyIndices queueFamilyIndices = findQueueFamilies(physicalDevice);
+        
+        VkCommandPoolCreateInfo poolCreateInfo = {};
+        poolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        poolCreateInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily;
+        poolCreateInfo.flags = 0;
+        
+        if (vkCreateCommandPool(device, &poolCreateInfo, nullptr, &commandPool) != VK_SUCCESS) {
+            throw runtime_error("failed to create command pool!");
+        }
+    }
+    
+    void createCommandBuffers() {
+        commandBuffers.resize(swapChainFramebuffers.size());
+        
+        VkCommandBufferAllocateInfo allocInfo = {};
+        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.commandPool = commandPool;
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; // コマンドの強さ（Primaryなら直接実行キューとして渡せるが、他のキューから参照できなく、Secondaryなら直接実行キューには渡せないが、他のキューから実行できる）
+        allocInfo.commandBufferCount = (uint32_t) commandBuffers.size();
+        
+        if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
+            throw runtime_error("failed to allocate command buffers!");
+        }
+        
+        for (size_t i = 0; i < commandBuffers.size(); i++) {
+            VkCommandBufferBeginInfo beginInfo = {};
+            beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            beginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT; // コマンドバッファの使用方法
+            beginInfo.pInheritanceInfo = nullptr;
+            
+            if (vkBeginCommandBuffer(commandBuffers[i], &beginInfo) != VK_SUCCESS) {
+                throw runtime_error("failed to begin recording command buffer!");
+            }
+            
+            VkRenderPassBeginInfo renderPassInfo = {};
+            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            renderPassInfo.renderPass = renderPass;
+            renderPassInfo.framebuffer = swapChainFramebuffers[i];
+            
+            renderPassInfo.renderArea.offset = {0,0};
+            renderPassInfo.renderArea.extent = swapChainExtent;
+            
+            VkClearValue clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+            renderPassInfo.clearValueCount = 1;
+            renderPassInfo.clearValueCount = 1;
+            renderPassInfo.pClearValues = &clearColor;
+            
+            vkCmdBeginRenderPass(commandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+            
+            vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+            
+            vkCmdDraw(commandBuffers[i], 3, 1, 0, 0); //一番目から, commandBuffer, vertexCount, instanceCount, firstVertex, firstInstance
+            
+            vkCmdEndRenderPass(commandBuffers[i]);
+            
+            if (vkEndCommandBuffer(commandBuffers[i]) !=  VK_SUCCESS) {
+                throw runtime_error("failed to record command buffer!");
+            }
+        }
+        
+        
+    }
+    
+    void drawFrame() {
+        vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, numeric_limits<uint64_t>::max());
+        vkResetFences(device, 1, &inFlightFences[currentFrame]);
+        
+        uint32_t imageIndex;
+        
+        // 一番目から device, swapchain, イメージが使用可能になるまでのタイムアウト（ナノ秒、最大値なら無効）, semaphore | or & fence, アクセスすべきスワップチェーンのイメージのインデックス
+        vkAcquireNextImageKHR(device, swapChain, numeric_limits<uint64_t>::max(), imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+        
+        VkSubmitInfo submitInfo = {};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        
+        VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]}; // 実行が開始される前にどのSemaphoresを待つか
+        VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT}; // 実行が開始される前にどのStageを待つか
+        submitInfo.waitSemaphoreCount = 1;
+        submitInfo.pWaitSemaphores = waitSemaphores;
+        submitInfo.pWaitDstStageMask = waitStages;
+        
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &commandBuffers[imageIndex];
+        
+        VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
+        // コマンドバッファの実行が終了したときに通知したいSemaphoreを指定する
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pSignalSemaphores = signalSemaphores;
+        
+        if (vkQueueSubmit(graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]) != VK_SUCCESS) {
+            throw runtime_error("failed to submit draw command buffer!");
+        }
+        
+        VkPresentInfoKHR presentInfo = {};
+        presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        
+        presentInfo.waitSemaphoreCount = 1;
+        presentInfo.pWaitSemaphores = signalSemaphores;
+        
+        VkSwapchainKHR swapChains[] = {swapChain};
+        presentInfo.swapchainCount = 1;
+        presentInfo.pSwapchains = swapChains;
+        presentInfo.pImageIndices = &imageIndex;
+        
+        // 複数のスワップチェーンがあった場合に、プレゼンテーションが成功した場合にそれぞれのスワップチェーンを確認することができる
+        presentInfo.pResults = nullptr;
+        
+        // イメージをスワップチェーンに格納する
+        vkQueuePresentKHR(presentQueue, &presentInfo);
+        
+        vkQueueWaitIdle(presentQueue);
+        
+        currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+    }
+    
+    void createSyncObjects() {
+        // semaphoreでGPUとGPUの同期を行い、fenceでGPUとCPUの同期をとっている
+        
+        imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+        renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+        inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+        
+        VkSemaphoreCreateInfo semaphoreInfo = {};
+        semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        
+        VkFenceCreateInfo fenceInfo = {};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        
+        
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS || vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS || vkCreateFence(device, &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS) {
+                throw runtime_error("failed to create semaphores!");
+            }
+        }
+
     }
     
     VkShaderModule createShaderModule(const vector<char>& code) {
