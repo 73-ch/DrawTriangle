@@ -151,7 +151,6 @@ private:
         glfwGetTime();
 
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
         
         window = glfwCreateWindow(800, 600, "Vulkan Test!!", nullptr, nullptr);
     }
@@ -183,6 +182,8 @@ private:
     }
     
     void cleanup() {
+        cleanupSwapChain();
+        
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
             vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
             vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
@@ -191,19 +192,6 @@ private:
         
         vkDestroyCommandPool(device, commandPool, nullptr);
         
-        for (auto framebuffer : swapChainFramebuffers) {
-            vkDestroyFramebuffer(device, framebuffer, nullptr);
-        }
-        
-        vkDestroyPipeline(device, graphicsPipeline, nullptr);
-        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-        vkDestroyRenderPass(device, renderPass, nullptr);
-        
-        for (auto imageView : swapChainImageViews) {
-            vkDestroyImageView(device, imageView, nullptr);
-        }
-        
-        vkDestroySwapchainKHR(device, swapChain, nullptr);
         vkDestroyDevice(device, nullptr);
         
         if (enableValidationLayers) {
@@ -804,7 +792,14 @@ private:
         uint32_t imageIndex;
         
         // 一番目から device, swapchain, イメージが使用可能になるまでのタイムアウト（ナノ秒、最大値なら無効）, semaphore | or & fence, アクセスすべきスワップチェーンのイメージのインデックス
-        vkAcquireNextImageKHR(device, swapChain, numeric_limits<uint64_t>::max(), imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+        VkResult result = vkAcquireNextImageKHR(device, swapChain, numeric_limits<uint64_t>::max(), imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+        
+        if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+            recreateSwapChain();
+            return;
+        } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+            throw runtime_error("failed to acquire swap chain image!");
+        }
         
         VkSubmitInfo submitInfo = {};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -842,9 +837,15 @@ private:
         presentInfo.pResults = nullptr;
         
         // イメージをスワップチェーンに格納する
-        vkQueuePresentKHR(presentQueue, &presentInfo);
+        result = vkQueuePresentKHR(presentQueue, &presentInfo);
         
         vkQueueWaitIdle(presentQueue);
+        
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+            recreateSwapChain();
+        } else if (result != VK_SUCCESS) {
+            throw runtime_error("failed to present swap chain image!");
+        }
         
         currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
@@ -870,6 +871,36 @@ private:
             }
         }
 
+    }
+    
+    void cleanupSwapChain() {
+        for (auto framebuffer : swapChainFramebuffers) {
+            vkDestroyFramebuffer(device, framebuffer, nullptr);
+        }
+        
+        vkFreeCommandBuffers(device, commandPool, static_cast<uint32_t>(commandBuffers.size()), commandBuffers.data());
+        
+        vkDestroyPipeline(device, graphicsPipeline, nullptr);
+        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+        vkDestroyRenderPass(device, renderPass, nullptr);
+        
+        for (auto imageView : swapChainImageViews) {
+            vkDestroyImageView(device, imageView, nullptr);
+        }
+        
+        vkDestroySwapchainKHR(device, swapChain, nullptr);
+    }
+    
+    // ウィンドウのリサイズ時にスワップチェーンを作り直す
+    void recreateSwapChain() {
+        vkDeviceWaitIdle(device);
+        
+        createSwapChain();
+        createImageViews();
+        createRenderPass();
+        createGraphicsPipeline();
+        createFramebuffers();
+        createCommandBuffers();
     }
     
     VkShaderModule createShaderModule(const vector<char>& code) {
@@ -958,7 +989,15 @@ private:
         if (capabilities.currentExtent.width != numeric_limits<uint32_t>::max()) {
             return capabilities.currentExtent;
         } else {
-            VkExtent2D actualExtent = {WIDTH, HEIGHT};
+            int width, height;
+            glfwGetFramebufferSize(window, &width, &height);
+            
+            VkExtent2D actualExtent = {
+                static_cast<uint32_t>(width),
+                static_cast<uint32_t>(height)
+            };
+            
+//            VkExtent2D actualExtent = {WIDTH, HEIGHT};
             
             actualExtent.width = max(capabilities.minImageExtent.width, min(capabilities.maxImageExtent.width, actualExtent.width));
             actualExtent.height = max(capabilities.minImageExtent.height, min(capabilities.maxImageExtent.height, actualExtent.height));
