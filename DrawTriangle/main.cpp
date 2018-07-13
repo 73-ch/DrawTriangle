@@ -12,7 +12,7 @@ using namespace std;
 
 // 3DCG ライブラリ
 #include <vulkan/vulkan.h>
-//#include <glm/glm.hpp>
+#include <glm/glm.hpp>
 #include <GLFW/glfw3.h>
 
 // errorやlog用
@@ -25,6 +25,7 @@ using namespace std;
 #include <set>
 #include <algorithm>
 #include <fstream>
+#include <array>
 // EXIT_SUCCESSとEXIT_FAILUREを提供する
 #include <cstdlib>
 
@@ -74,6 +75,42 @@ struct SwapChainSupportDetails {
     VkSurfaceCapabilitiesKHR capabilities; // 何枚貯めて置けるかと画像のサイズ、それぞれのmin/max
     vector<VkSurfaceFormatKHR> formats; // ピクセルフォーマット、色関連
     vector<VkPresentModeKHR> presentModes; // どんな風に変えるか
+};
+
+struct Vertex {
+    glm::vec2 pos;
+    glm::vec3 color;
+    
+    static VkVertexInputBindingDescription getBindingDescription() {
+        VkVertexInputBindingDescription bindingDescription = {};
+        bindingDescription.binding = 0; // bindingの中のインデックス
+        bindingDescription.stride = sizeof(Vertex); // 何バイトが1頂点/インスタンス分か
+        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX; // 頂点ごとかインスタンスごとに読み込むデータを次にするかを決める
+        
+        return bindingDescription;
+    }
+    
+    static array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
+        array<VkVertexInputAttributeDescription, 2> attributeDescriptions = {};
+        
+        attributeDescriptions[0].binding = 0; // bindingのインデックス
+        attributeDescriptions[0].location = 0; // shaderのロケーション
+        attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT; // format
+        attributeDescriptions[0].offset = offsetof(Vertex, pos); // o
+        
+        attributeDescriptions[1].binding = 0;
+        attributeDescriptions[1].location = 1;
+        attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attributeDescriptions[1].offset = offsetof(Vertex, color);
+        
+        return attributeDescriptions;
+    }
+};
+
+const vector<Vertex> vertices = {
+    {{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
 };
 
 void error_callback(int error, const char* description) {
@@ -541,13 +578,17 @@ private:
         // (プログラマブル部分の）レンダリングパイプラインの作成
         VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
         
+        // 頂点情報を取得
+        auto bindingDescription = Vertex::getBindingDescription();
+        auto attributeDescriptions = Vertex::getAttributeDescriptions();
+        
         // 頂点シェーダーに渡す情報の設定
         VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
         vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertexInputInfo.vertexBindingDescriptionCount = 0; // 頂点シェーダへの頂点データの数
-        vertexInputInfo.pVertexBindingDescriptions = nullptr; // 頂点データのポインタ
-        vertexInputInfo.vertexAttributeDescriptionCount = 0; // attributeの数
-        vertexInputInfo.pVertexAttributeDescriptions = nullptr; // attributeを表すVkVertexInputAttributeDescriptionのポインタ
+        vertexInputInfo.vertexBindingDescriptionCount = 1; // 頂点シェーダへの頂点データの数
+        vertexInputInfo.pVertexBindingDescriptions = &bindingDescription; // 頂点データのポインタ
+        vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size()); // attributeの数
+        vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data(); // attributeを表すVkVertexInputAttributeDescriptionのポインタ
         
         VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
         inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
