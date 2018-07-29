@@ -37,6 +37,7 @@
 		3968ADB920E21A9800906D9E /* libvulkan.1.1.73.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libvulkan.1.1.73.dylib; path = "../../../../../usr/local/lib/vulkansdk-macos/macOS/lib/libvulkan.1.1.73.dylib"; sourceTree = "<group>"; };
 		3968ADBD20E21AB000906D9E /* libvulkan.1.1.73.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libvulkan.1.1.73.dylib; path = "../../../../../usr/local/lib/vulkansdk-macos/macOS/lib/libvulkan.1.1.73.dylib"; sourceTree = "<group>"; };
 		3968ADC120E21E8B00906D9E /* libglfw.3.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libglfw.3.3.dylib; path = "../../../../../usr/local/Cellar/glfw/HEAD-0be4f3f/lib/libglfw.3.3.dylib"; sourceTree = "<group>"; };
+		39C0E494210DA7D500DBD278 /* texture.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = texture.png; sourceTree = "<group>"; };
 		39F062D320E37049001B047C /* shaders */ = {isa = PBXFileReference; lastKnownFileType = folder; path = shaders; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -76,6 +77,7 @@
 		3966A0BF20DD06FF00DB3C14 /* DrawTriangle */ = {
 			isa = PBXGroup;
 			children = (
+				39C0E493210DA7A800DBD278 /* texture */,
 				39F062D320E37049001B047C /* shaders */,
 				3966A0C020DD06FF00DB3C14 /* main.cpp */,
 			);
@@ -88,6 +90,14 @@
 				3968ADB920E21A9800906D9E /* libvulkan.1.1.73.dylib */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		39C0E493210DA7A800DBD278 /* texture */ = {
+			isa = PBXGroup;
+			children = (
+				39C0E494210DA7D500DBD278 /* texture.png */,
+			);
+			path = texture;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -275,6 +285,7 @@
 					/usr/local/Cellar/glm/0.9.9.0/include,
 					"/usr/local/lib/vulkansdk-macos/macOS/include",
 					"/usr/local/Cellar/glfw/HEAD-0be4f3f/include",
+					/usr/local/include,
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"/usr/local/Cellar/glfw/HEAD-0be4f3f/lib",
@@ -297,6 +308,7 @@
 					/usr/local/Cellar/glm/0.9.9.0/include,
 					"/usr/local/lib/vulkansdk-macos/macOS/include",
 					"/usr/local/Cellar/glfw/HEAD-0be4f3f/include",
+					/usr/local/include,
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"/usr/local/Cellar/glfw/HEAD-0be4f3f/lib",

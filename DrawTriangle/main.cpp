@@ -7,13 +7,17 @@
 //
 
 #define GLFW_INCLUDE_VULKAN
+#define GLM_FORCE_RADIANS
+#define STB_IMAGE_IMPLEMENTATION
 
 using namespace std;
 
 // 3DCG ライブラリ
 #include <vulkan/vulkan.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <GLFW/glfw3.h>
+#include <stb/stb_image.h> // texture用のライブラリ
 
 // errorやlog用
 #include <iostream>
@@ -26,6 +30,8 @@ using namespace std;
 #include <algorithm>
 #include <fstream>
 #include <array>
+#include <chrono>
+
 // EXIT_SUCCESSとEXIT_FAILUREを提供する
 #include <cstdlib>
 
@@ -118,6 +124,12 @@ const vector<uint16_t> indices = {
     0, 1, 2, 2, 3, 0
 };
 
+struct UniformBufferObject {
+    glm::mat4 model;
+    glm::mat4 view;
+    glm::mat4 proj;
+};
+
 void error_callback(int error, const char* description) {
     puts(description);
 }
@@ -170,6 +182,7 @@ private:
     vector<VkImageView> swapChainImageViews;
     
     VkRenderPass renderPass;
+    VkDescriptorSetLayout descriptorSetLayout;
     VkPipelineLayout pipelineLayout;
     
     VkPipeline graphicsPipeline;
@@ -188,6 +201,16 @@ private:
     VkDeviceMemory vertexBufferMemory;
     VkBuffer indexBuffer;
     VkDeviceMemory indexBufferMemory;
+    
+    
+    vector<VkBuffer> uniformBuffers;
+    vector<VkDeviceMemory> uniformBuffersMemory;
+    
+    VkDescriptorPool descriptorPool;
+    vector<VkDescriptorSet> descriptorSets;
+    
+    VkImage textureImage;
+    VkDeviceMemory textureImageMemory;
     
     void initWindow() {
         if (!glfwVulkanSupported()) {
@@ -211,11 +234,16 @@ private:
         createSwapChain();
         createImageViews();
         createRenderPass();
+        createDescriptorSetLayout();
         createGraphicsPipeline();
         createFramebuffers();
         createCommandPool();
+        createTextureImage();
         createVertexBuffer();
         createIndexBuffer();
+        createUniformBuffer();
+        createDescriptorPool();
+        createDescriptorSets();
         createCommandBuffers();
         createSyncObjects();
     }
@@ -232,6 +260,18 @@ private:
     
     void cleanup() {
         cleanupSwapChain();
+        
+        vkDestroyImage(device, textureImage, nullptr);
+        vkFreeMemory(device, textureImageMemory, nullptr);
+        
+        vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+
+        vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
+        
+        for (size_t i = 0; i < swapChainImages.size(); i++) {
+            vkDestroyBuffer(device, uniformBuffers[i], nullptr);
+            vkFreeMemory(device, uniformBuffersMemory[i], nullptr);
+        }
         
         vkDestroyBuffer(device, indexBuffer, nullptr);
         vkFreeMemory(device, indexBufferMemory, nullptr);
@@ -644,7 +684,7 @@ private:
         
         // カリング周り
         rasterizationStateCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
-        rasterizationStateCreateInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        rasterizationStateCreateInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         
         // 深度値のバイアスを設定する。シャドウマップなどで、奥に行く時の補間方法などを細かく指定したい場合に使える
         rasterizationStateCreateInfo.depthBiasEnable = VK_FALSE;
@@ -711,8 +751,8 @@ private:
         // uniform変数
         VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
         pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipelineLayoutCreateInfo.setLayoutCount = 0;
-//        pipelineLayoutCreateInfo.pSetLayouts = nullptr;
+        pipelineLayoutCreateInfo.setLayoutCount = 1;
+        pipelineLayoutCreateInfo.pSetLayouts = &descriptorSetLayout; // descriptorのセット
         pipelineLayoutCreateInfo.pushConstantRangeCount = 0;
 //        pipelineLayoutCreateInfo.pPushConstantRanges = nullptr;
         
@@ -838,6 +878,7 @@ private:
             vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
             vkCmdBindIndexBuffer(commandBuffers[i], indexBuffer, 0, VK_INDEX_TYPE_UINT16);
             
+            vkCmdBindDescriptorSets(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[i], 0, nullptr); // descriptorをセット
             
             vkCmdDrawIndexed(commandBuffers[i], static_cast<uint32_t>(indices.size()), 1, 0, 0, 0); //一番目から, commandBuffer, vertexCount, instanceCount, indexの読み込み開始位置, indexに一律の数字を追加できる, instance offset
             
@@ -868,6 +909,8 @@ private:
         } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
             throw runtime_error("failed to acquire swap chain image!");
         }
+        
+        updateUniformBuffer(imageIndex);
         
         VkSubmitInfo submitInfo = {};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -986,7 +1029,7 @@ private:
         memcpy(data, vertices.data(), (size_t) bufferSize); // 頂点データのメモリをコピーしていれる
         vkUnmapMemory(device, stagingBufferMemory);
         
-        createBuffer(bufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, vertexBuffer, vertexBufferMemory);
+        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
         copyBuffer(stagingBuffer, vertexBuffer, bufferSize); // ステージングバッファを頂点バッファにコピー
         
         vkDestroyBuffer(device, stagingBuffer, nullptr);
@@ -1040,6 +1083,230 @@ private:
     }
     
     void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
+        VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+        
+        VkBufferCopy copyRegion = {};
+        copyRegion.srcOffset = 0;
+        copyRegion.dstOffset = 0;
+        copyRegion.size = size;
+        vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+        
+        endSingleTimeCommands(commandBuffer);
+    }
+    
+    void createDescriptorSetLayout() {
+        VkDescriptorSetLayoutBinding uboLayoutBinding = {};
+        uboLayoutBinding.binding = 0; // shaderのuniform変数のbindingの番号に相当
+        uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        uboLayoutBinding.descriptorCount = 1; // C++側での配列内での要素数
+        
+        uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; // シェーダーのどのステージで使うか
+        
+        uboLayoutBinding.pImmutableSamplers = nullptr; // image sampling に関する設定（後述）
+        
+        VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+        layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layoutInfo.bindingCount = 1;
+        layoutInfo.pBindings = &uboLayoutBinding;
+        
+        if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS) {
+            throw runtime_error("failed to create descriptor set layout!!");
+        }
+        
+        
+    }
+    
+    void createUniformBuffer() {
+        VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+        
+        uniformBuffers.resize(swapChainImages.size());
+        uniformBuffersMemory.resize(swapChainImages.size());
+        
+        for (size_t i = 0; i < swapChainImages.size(); i++) {
+            createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffers[i], uniformBuffersMemory[i]);
+        }
+    }
+    
+    void updateUniformBuffer(uint32_t currentImage) {
+        static auto startTime = chrono::high_resolution_clock::now(); // 開始時の時間
+        
+        auto currentTime = chrono::high_resolution_clock::now(); // 関数実行時の時間
+        float time = chrono::duration<float, chrono::seconds::period>(currentTime - startTime).count(); // スタートしてからの時間
+
+        
+        UniformBufferObject ubo = {};
+        ubo.model = glm::rotate(glm::mat4(1.0f), float(exp(1.0 - fmod(time, 1.0)) - 1.0) * glm::radians(180.0f), glm::vec3(0.f, 0.f, 1.0f * int((int(time) % 2) * 2 - 1)));
+        
+        ubo.view = glm::lookAt(glm::vec3(2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        
+        ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float) swapChainExtent.height, 0.1f, 10.0f);
+        
+        ubo.proj[1][1] *= -1; // vulkanはopenGLとY軸反転
+        
+        void*data;
+        vkMapMemory(device, uniformBuffersMemory[currentImage], 0, sizeof(ubo), 0, &data);
+        memcpy(data, &ubo, sizeof(ubo));
+        vkUnmapMemory(device, uniformBuffersMemory[currentImage]);
+    }
+    
+    void createDescriptorPool() {
+        VkDescriptorPoolSize poolSize = {};
+        poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        poolSize.descriptorCount = static_cast<uint32_t>(swapChainImages.size());
+        
+        VkDescriptorPoolCreateInfo poolInfo = {};
+        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.poolSizeCount = 1; // descriptorの数
+        poolInfo.pPoolSizes = &poolSize;
+        
+        poolInfo.maxSets = static_cast<uint32_t>(swapChainImages.size());
+        // あとでdescriptorを変更する場合、poolInfo.flagsで指定できる
+        
+        if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
+            throw runtime_error("failed to create descriptor pool!");
+        }
+    }
+    
+    void createDescriptorSets() {
+        vector<VkDescriptorSetLayout> layouts(swapChainImages.size(), descriptorSetLayout);
+        VkDescriptorSetAllocateInfo allocInfo = {};
+        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool = descriptorPool;
+        allocInfo.descriptorSetCount = static_cast<uint32_t>(swapChainImages.size());
+        allocInfo.pSetLayouts = layouts.data();
+        
+        descriptorSets.resize(swapChainImages.size());
+        if (vkAllocateDescriptorSets(device, &allocInfo, &descriptorSets[0]) != VK_SUCCESS) {
+            throw runtime_error("failed to allocate descriptor sets!");
+        }
+        
+        for (size_t i = 0; i < swapChainImages.size(); i++) {
+            VkDescriptorBufferInfo bufferInfo = {};
+            bufferInfo.buffer = uniformBuffers[i];
+            bufferInfo.offset = 0;
+            bufferInfo.range = sizeof(UniformBufferObject);
+            
+            VkWriteDescriptorSet descriptorWrite = {};
+            descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrite.dstSet = descriptorSets[i];
+            descriptorWrite.dstBinding = 0;
+            descriptorWrite.dstArrayElement = 0; // descriptorは配列になる可能性があるのでその場合は変更する必要がある、アップデートしたいdescriptorの最初のインデックス
+            
+            descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            descriptorWrite.descriptorCount = 1; // 変更したいdescriptorの数
+            
+            descriptorWrite.pBufferInfo = &bufferInfo;
+            descriptorWrite.pImageInfo = nullptr;
+            descriptorWrite.pTexelBufferView = nullptr;
+            
+            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+        }
+    }
+    
+    void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
+        // barrierはパイプライン内でシェーダーが実行される前にバリアを設けることで、テクスチャの情報などを確実にシェーダーが読み込む前に書き込まれてるいるようにすることができる
+        VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+        
+        VkImageMemoryBarrier barrier = {};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = oldLayout;
+        barrier.newLayout = newLayout;
+        
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        
+        barrier.image = image;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+        
+        VkPipelineStageFlags sourceStage;
+        VkPipelineStageFlags destinationStage;
+        
+        if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            
+            sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            
+            sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        } else {
+            throw invalid_argument("unsupported layout transition!");
+        }
+        
+        vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+        
+        endSingleTimeCommands(commandBuffer);
+    }
+    
+    void createTextureImage() {
+        int texWidth, texHeight, texChannels;
+        stbi_uc* pixels = stbi_load("/Users/Namikawa/Documents/Vulkan/DrawTriangle/DrawTriangle/texture/texture.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+        
+        VkDeviceSize imageSize = texWidth * texHeight * 4;
+        if (!pixels) {
+            throw runtime_error("failed to load texture image!");
+        }
+        
+        // texture用のstagingbufferの作成
+        VkBuffer stagingBuffer;
+        VkDeviceMemory stagingBufferMemory;
+        createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+        
+        // ステージングバッファにstbで読んだピクセルをコピー
+        void* data;
+        vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
+        memcpy(data, pixels, static_cast<size_t>(imageSize));
+        vkUnmapMemory(device, stagingBufferMemory);
+        
+        // stbのピクセルはもういらないので解放
+        stbi_image_free(pixels);
+        
+        createImage(texWidth, texHeight, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, textureImage, textureImageMemory);
+        
+        transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        copyBufferToImage(stagingBuffer, textureImage, static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight));
+        
+        transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        
+        vkDestroyBuffer(device, stagingBuffer, nullptr);
+        vkFreeMemory(device, stagingBufferMemory, nullptr);
+    }
+    
+    void copyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) {
+        VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+        
+        // どこの部分をコピーするかの領域の設定
+        VkBufferImageCopy region = {};
+        region.bufferOffset = 0;
+        region.bufferRowLength = 0;
+        region.bufferImageHeight = 0;
+        
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel = 0;
+        region.imageSubresource.baseArrayLayer = 0;
+        region.imageSubresource.layerCount = 1;
+        
+        region.imageOffset = {0,0,0};
+        region.imageExtent = {
+            width,
+            height,
+            1
+        };
+        
+        vkCmdCopyBufferToImage(commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+        
+        endSingleTimeCommands(commandBuffer);
+    }
+    
+    VkCommandBuffer beginSingleTimeCommands() {
         VkCommandBufferAllocateInfo allocInfo = {};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -1055,12 +1322,10 @@ private:
         
         vkBeginCommandBuffer(commandBuffer, &beginInfo);
         
-        VkBufferCopy copyRegion = {};
-        copyRegion.srcOffset = 0;
-        copyRegion.dstOffset = 0;
-        copyRegion.size = size;
-        vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
-        
+        return commandBuffer;
+    }
+    
+    void endSingleTimeCommands(VkCommandBuffer commandBuffer) {
         vkEndCommandBuffer(commandBuffer);
         
         VkSubmitInfo submitInfo = {};
@@ -1070,9 +1335,48 @@ private:
         
         vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
         vkQueueWaitIdle(graphicsQueue); // 転送キューがIdleになるのをまつ
-        // ここで複数の転送キューがある場合、フェンスを利用してvkWaitForFenceで行っても良い（最適化を行える）
+                                        // ここで複数の転送キューがある場合、フェンスを利用してvkWaitForFenceで行っても良い（最適化を行える）
         
         vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+    }
+    
+    void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory) {
+        // VkImage用のcreateInfo
+        VkImageCreateInfo imageInfo = {};
+        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.extent.width = width;
+        imageInfo.extent.height = height;
+        imageInfo.extent.depth = 1;
+        imageInfo.mipLevels = 1;
+        imageInfo.arrayLayers = 1;
+        
+        imageInfo.format = format;
+        // タイリングを指定、直接メモリの中のテクセルにアクセスするとき(staging image)はLINEARを指定する、ステージングバッファを使うときはシェーダから効率的にアクセスするためにOPTIMALを使用する
+        imageInfo.tiling = tiling;
+        
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; // タイリングをLINEARにした場合変更する必要がある
+        
+        imageInfo.usage = usage;
+        
+        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE; // 異なるグラフィックキューで共有する場合に変更する
+        
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT; // マルチサンプリングに関する設定
+        imageInfo.flags = 0; // 例えば3Dテクスチャを使っていた時に空気に大量のメモリを割り当てたくない時に使用することができる
+        
+        if (vkCreateImage(device, &imageInfo, nullptr, &image) != VK_SUCCESS) throw runtime_error("failed to create image!");
+        
+        VkMemoryRequirements memRequirements;
+        vkGetImageMemoryRequirements(device, textureImage, &memRequirements);
+        
+        VkMemoryAllocateInfo allocInfo = {};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = memRequirements.size;
+        allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
+        
+        if (vkAllocateMemory(device, &allocInfo, nullptr, &imageMemory) != VK_SUCCESS) throw runtime_error("failed to allocate image memory!");
+        
+        vkBindImageMemory(device, image, imageMemory, 0);
     }
     
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
