@@ -212,6 +212,9 @@ private:
     VkImage textureImage;
     VkDeviceMemory textureImageMemory;
     
+    VkImageView textureImageView;
+    VkSampler textureSampler;
+    
     void initWindow() {
         if (!glfwVulkanSupported()) {
             cout << "vulkan loader not found!" << endl;
@@ -239,6 +242,8 @@ private:
         createFramebuffers();
         createCommandPool();
         createTextureImage();
+        createTextureImageView();
+        createTextureSampler();
         createVertexBuffer();
         createIndexBuffer();
         createUniformBuffer();
@@ -260,6 +265,9 @@ private:
     
     void cleanup() {
         cleanupSwapChain();
+        
+        vkDestroySampler(device, textureSampler, nullptr);
+        vkDestroyImageView(device, textureImageView, nullptr);
         
         vkDestroyImage(device, textureImage, nullptr);
         vkFreeMemory(device, textureImageMemory, nullptr);
@@ -412,6 +420,7 @@ private:
         }
         
         VkPhysicalDeviceFeatures deviceFeatures = {};
+        deviceFeatures.samplerAnisotropy = VK_TRUE;
         
         VkDeviceCreateInfo createInfo = {};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -515,31 +524,7 @@ private:
         swapChainImageViews.resize(swapChainImages.size());
         
         for (size_t i = 0; i < swapChainImages.size(); i++) {
-            VkImageViewCreateInfo createInfo = {};
-            createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-            createInfo.image = swapChainImages[i];
-            
-            createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-            createInfo.format = swapChainImageFormat;
-            
-            // スウィズル演算子の設定
-            createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-            
-            // ミップマップや複数レイヤーの設定
-            // もしVRゴーグルなどに出すときは、複数のレイヤーをもつスワップチェーンを作成して、それぞれのレイヤーに左目のビューと右目のビューを表す複数のImageViewを作成する
-            createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            createInfo.subresourceRange.baseMipLevel = 0;
-            createInfo.subresourceRange.levelCount = 1;
-            createInfo.subresourceRange.baseArrayLayer = 0;
-            createInfo.subresourceRange.layerCount = 1;
-            
-            // ImageView作る
-            if (vkCreateImageView(device, &createInfo, nullptr, &swapChainImageViews[i]) != VK_SUCCESS) {
-                throw runtime_error("failed to create image views!");
-            }
+            swapChainImageViews[i] = createImageView(swapChainImages[i], swapChainImageFormat);
         }
         
     }
@@ -1379,6 +1364,68 @@ private:
         vkBindImageMemory(device, image, imageMemory, 0);
     }
     
+    void createTextureImageView() {
+        textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_UNORM);
+    }
+    
+    VkImageView createImageView(VkImage image, VkFormat format) {
+        VkImageViewCreateInfo viewInfo = {};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = image;
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = format;
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.baseMipLevel = 0;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.baseArrayLayer = 0;
+        viewInfo.subresourceRange.layerCount = 1;
+        // ここでviewInfo.componentsはVK_COMPONENT_SWIZZLE_IDENTITYが常に0と定義されているので省略している
+        // スウィズル演算子の設定
+//        viewInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+//        viewInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+//        viewInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+//        viewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        
+        VkImageView imageView;
+        
+        if (vkCreateImageView(device, &viewInfo, nullptr, &imageView) != VK_SUCCESS) throw runtime_error("failed to create texture image view!");
+        
+        return imageView;
+    }
+    
+    void createTextureSampler() {
+        VkSamplerCreateInfo samplerInfo = {};
+        samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        samplerInfo.magFilter = VK_FILTER_LINEAR; // oversampling
+        samplerInfo.minFilter = VK_FILTER_LINEAR; // undersampling
+        
+        // テクスチャの座標ごとにモードを指定できる
+        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        
+        samplerInfo.anisotropyEnable = VK_TRUE;
+        samplerInfo.maxAnisotropy = 16;
+        
+        samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK; // ボーダーカラー
+        
+        samplerInfo.unnormalizedCoordinates = VK_FALSE; // 座標をノーマライズするか（true なら [(0,0):(texWidth,texHeight))になる）
+        
+        samplerInfo.compareEnable = VK_FALSE; // 主にシャドウマップのPCFに使われる（多分、シャドウマップを作成する時に作成したいところに処理が入らないなどをなくすためのやつ）
+        samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+        
+        // ミップマップに関する設定
+        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        samplerInfo.mipLodBias = 0.0f;
+        samplerInfo.minLod = 0.0f;
+        samplerInfo.maxLod = 0.0f;
+        
+        if (vkCreateSampler(device, &samplerInfo, nullptr, &textureSampler) != VK_SUCCESS) throw runtime_error("failed to create texture sampler!");
+        
+        
+        
+    }
+    
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
         // propertiesでメモリに対して要求する機能を指定
         VkPhysicalDeviceMemoryProperties memProperties;
@@ -1435,21 +1482,31 @@ private:
         
         QueueFamilyIndices indices = findQueueFamilies(device);
         
-        if (indices.isComplete()) {
-            runtime_error("device does not support graphic API!");
+        
+        if (!indices.isComplete()) {
+            score = 0;
         }
         
-        if (checkDeviceExtensionSupport(device)) {
-            runtime_error("device extension does not supported");
+        if (!checkDeviceExtensionSupport(device)) {
+//            score = 0;
         }
         
         SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
-        if (!swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty()) {
-            runtime_error("Swap chain support is not sufficient");
+        if (swapChainSupport.formats.empty() || swapChainSupport.presentModes.empty()) {
+            score = 0;
         }
+        
+//        if (!deviceFeatures.samplerAnisotropy) {
+//            score = 0;
+//        }
         
         cout << "device name : " << deviceProperties.deviceName << endl;
         cout << "\t" << "device type : " << deviceProperties.deviceType << endl;
+        cout << "\t" << "API support : " << indices.isComplete() << endl;
+        cout << "\t" << "geometry shader support : " << deviceFeatures.geometryShader << endl;
+        cout << "\t" << "extension support : " << checkDeviceExtensionSupport(device) << endl;
+        cout << "\t" << "swapchain support : " << (!swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty()) << endl;
+        cout << "\t" << "anisotropy filter support : " << !deviceFeatures.samplerAnisotropy << endl;
         cout << "\t" << "device score : " << score << endl;
         
         return score;
