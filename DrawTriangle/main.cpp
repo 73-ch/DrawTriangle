@@ -8,6 +8,7 @@
 
 #define GLFW_INCLUDE_VULKAN
 #define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE// openglのデプスは-1.0~0.0だが、Vulkanは0.0~1.0
 #define STB_IMAGE_IMPLEMENTATION
 
 using namespace std;
@@ -31,6 +32,7 @@ using namespace std;
 #include <fstream>
 #include <array>
 #include <chrono>
+#include <random>
 
 // EXIT_SUCCESSとEXIT_FAILUREを提供する
 #include <cstdlib>
@@ -84,7 +86,7 @@ struct SwapChainSupportDetails {
 };
 
 struct Vertex {
-    glm::vec2 pos;
+    glm::vec3 pos;
     glm::vec3 color;
     glm::vec2 texCoord;
     
@@ -102,7 +104,7 @@ struct Vertex {
         
         attributeDescriptions[0].binding = 0; // bindingのインデックス
         attributeDescriptions[0].location = 0; // shaderのロケーション
-        attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT; // format
+        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT; // format
         attributeDescriptions[0].offset = offsetof(Vertex, pos); // o
         
         attributeDescriptions[1].binding = 0;
@@ -119,15 +121,23 @@ struct Vertex {
     }
 };
 
-const vector<Vertex> vertices = {
-    {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-    {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-    {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-    {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}
+vector<Vertex> vertices = {
+    // first plane
+    {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+    {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+    {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+    {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+    
+    // second plane
+    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+    {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+    {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+    {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}
 };
 
-const vector<uint16_t> indices = {
-    0, 1, 2, 2, 3, 0
+vector<uint16_t> indices = {
+    0, 1, 2, 2, 3, 0,
+    4, 5, 6, 6, 7, 4
 };
 
 struct UniformBufferObject {
@@ -161,6 +171,29 @@ static vector<char> readFile(const string& filename) {
 class HelloTriangleApplication {
 public:
     void run() {
+//        mt19937 rnd;。
+        for (int i = 0; i < 500; ++i) {
+            cout << (float)rand()/RAND_MAX << endl;
+            
+            glm::vec3 t = glm::vec3((float)rand()/RAND_MAX *2.f - 1.f, (float)rand()/RAND_MAX *2.f - 1.f, (float)rand()/RAND_MAX *2.f - 1.f);
+            
+            vertices.push_back(Vertex({t, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}}));
+            vertices.push_back(Vertex({t+glm::vec3{(i%2)*.1, ((i+1)%2)*.1, 0}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}}));
+            vertices.push_back(Vertex({t+glm::vec3{(i%2)*.1, (i%2)*.1, 0}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}}));
+            vertices.push_back(Vertex({t+glm::vec3{((i+1)%2)*.1, (i%2)*.1, 0}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}));
+            for (auto k : {i*4, i*4+1, i*4+2, i*4+2, i*4+3, i*4})indices.push_back(k);
+        }
+        
+        for (auto i : vertices) cout << i.pos.x << endl;
+        cout << endl;
+        
+//        vertices.push_back(Vertex({{-0.5f, -0.5f, -1.f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}}));
+//        vertices.push_back(Vertex({{0.5f, -0.5f, -1.f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}}));
+//        vertices.push_back(Vertex({{0.5f, 0.5f, -1.f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}}));
+//        vertices.push_back(Vertex({{-0.5f, 0.5f, -1.f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}));
+
+        
+        
         initWindow();
         initVulkan();
         mainLoop();
@@ -221,6 +254,10 @@ private:
     VkImageView textureImageView;
     VkSampler textureSampler;
     
+    vector<VkImage> depthImages;
+    vector<VkDeviceMemory> depthImagesMemory;
+    vector<VkImageView> depthImagesView;
+    
     void initWindow() {
         if (!glfwVulkanSupported()) {
             cout << "vulkan loader not found!" << endl;
@@ -234,6 +271,7 @@ private:
         window = glfwCreateWindow(800, 600, "Vulkan Test!!", nullptr, nullptr);
     }
     void initVulkan() {
+        
         glfwSetErrorCallback(error_callback);
         createInstance();
         setupDebugCallback();
@@ -245,8 +283,9 @@ private:
         createRenderPass();
         createDescriptorSetLayout();
         createGraphicsPipeline();
-        createFramebuffers();
         createCommandPool();
+        createDepthResources();
+        createFramebuffers();
         createTextureImage();
         createTextureImageView();
         createTextureSampler();
@@ -530,7 +569,7 @@ private:
         swapChainImageViews.resize(swapChainImages.size());
         
         for (size_t i = 0; i < swapChainImages.size(); i++) {
-            swapChainImageViews[i] = createImageView(swapChainImages[i], swapChainImageFormat);
+            swapChainImageViews[i] = createImageView(swapChainImages[i], swapChainImageFormat, VK_IMAGE_ASPECT_COLOR_BIT);
         }
         
     }
@@ -552,25 +591,34 @@ private:
         
         colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; // レンダーパスが始まる前
         colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR; // レンダーパスが終了したときに自動的に遷移するレイアウト
-        
+    
         // subpass : レンダーパスの中で、ポストプロセッシングなどの前のフレームの情報が残されたままだと都合がいい場合に、それらの処理を一つにまとめることができる
         // subpassは後でパフォーマンスがいいように順番を並べ替えることができる
         VkAttachmentReference colorAttachmentRef = {};
         colorAttachmentRef.attachment = 0; // subpassのインデックス（順番）
         colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         
+        
+        VkAttachmentDescription depthAttachment = {};
+        depthAttachment.format = findDepthFormat();
+        depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; // 描画が終わった時にはデプスの情報は必要ない
+        depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; // 前の画像はどうでもいいよね
+        depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        
+        VkAttachmentReference depthAttachmentRef = {};
+        depthAttachmentRef.attachment = 1;
+        depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        
         // Vulkanは将来的に計算用のsubpassも追加される予定なので、このサブパスがグラフィック用であることを明示する必要がある
         VkSubpassDescription subpass = {};
         subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         subpass.colorAttachmentCount = 1;
         subpass.pColorAttachments = &colorAttachmentRef; // shaderからlayout(location = 0) out vec4 outColorのように, シェーダー側のlocationとsubpassのAttachmentのインデックスが一致している
-        
-        VkRenderPassCreateInfo renderPassCreateInfo = {};
-        renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-        renderPassCreateInfo.attachmentCount = 1;
-        renderPassCreateInfo.pAttachments = &colorAttachment;
-        renderPassCreateInfo.subpassCount = 1;
-        renderPassCreateInfo.pSubpasses = &subpass;
+        subpass.pDepthStencilAttachment = &depthAttachmentRef; // デプスとステンシルはカラーと違い一つしかアタッチメントできない
         
         // Subpass同士の依存関係を示す（例：　このSubpassの次にこのSubpassを実行したいなど？）, 常にsrc<dstでないといけない
         VkSubpassDependency dependency = {};
@@ -586,8 +634,18 @@ private:
         dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; //この場合、カラーアタッチメントのステージで
         dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT; // 読み書きが終われば次の処理は走っても大丈夫
         
+        
+        array<VkAttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
+        VkRenderPassCreateInfo renderPassCreateInfo = {};
+        renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        renderPassCreateInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+        renderPassCreateInfo.pAttachments = attachments.data();
+        renderPassCreateInfo.subpassCount = 1;
+        renderPassCreateInfo.pSubpasses = &subpass;
+        
         renderPassCreateInfo.dependencyCount = 1;
         renderPassCreateInfo.pDependencies = &dependency;
+        
         
         if (vkCreateRenderPass(device, &renderPassCreateInfo, nullptr, &renderPass) != VK_SUCCESS) {
             throw runtime_error("failed to create render pass!");
@@ -694,8 +752,20 @@ private:
 //        multisampleStateCreateInfo.alphaToOneEnable = VK_FALSE;
         
         // depth test & stencil test
-//        VkPipelineDepthStencilStateCreateInfo depthStencilStateCreateInfo;
-//        depthStencilStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        VkPipelineDepthStencilStateCreateInfo depthStencil = {};
+        depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depthStencil.depthTestEnable = VK_TRUE; // デプステストの有効化
+        depthStencil.depthWriteEnable = VK_TRUE;
+        
+        depthStencil.depthCompareOp = VK_COMPARE_OP_LESS; // 深度値の比較方法
+        
+        depthStencil.depthBoundsTestEnable = VK_FALSE;
+        depthStencil.minDepthBounds = 0.0f;
+        depthStencil.maxDepthBounds = 1.0f;
+        
+        depthStencil.stencilTestEnable = VK_FALSE;
+        depthStencil.front = {};
+        depthStencil.back = {};
         
         // 各フレームバッファにブレンディングの設定を付加
         VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
@@ -762,7 +832,7 @@ private:
         pipelineCreateInfo.pViewportState = &viewportStateCreateInfo;
         pipelineCreateInfo.pRasterizationState = &rasterizationStateCreateInfo;
         pipelineCreateInfo.pMultisampleState = &multisampleStateCreateInfo;
-//        pipelineCreateInfo.pDepthStencilState = nullptr;
+        pipelineCreateInfo.pDepthStencilState = &depthStencil;
         pipelineCreateInfo.pColorBlendState = &colorBlendStateCreateInfo;
 //        pipelineCreateInfo.pDynamicState = nullptr;
         
@@ -791,15 +861,16 @@ private:
         swapChainFramebuffers.resize(swapChainImageViews.size());
         
         for (size_t i = 0; i < swapChainImageViews.size(); i++) {
-            VkImageView attachments[] = {
-                swapChainImageViews[i]
+            array<VkImageView, 2> attachments = {
+                swapChainImageViews[i],
+                depthImagesView[i]
             };
             
             VkFramebufferCreateInfo framebufferCreateInfo = {};
             framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
             framebufferCreateInfo.renderPass = renderPass;
-            framebufferCreateInfo.attachmentCount = 1;
-            framebufferCreateInfo.pAttachments = attachments;
+            framebufferCreateInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+            framebufferCreateInfo.pAttachments = attachments.data();
             framebufferCreateInfo.width = swapChainExtent.width;
             framebufferCreateInfo.height = swapChainExtent.height;
             framebufferCreateInfo.layers = 1;
@@ -854,10 +925,12 @@ private:
             renderPassInfo.renderArea.offset = {0,0};
             renderPassInfo.renderArea.extent = swapChainExtent;
             
-            VkClearValue clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
-            renderPassInfo.clearValueCount = 1;
-            renderPassInfo.clearValueCount = 1;
-            renderPassInfo.pClearValues = &clearColor;
+            array<VkClearValue, 2> clearValues = {};
+            clearValues[0].color = {0.0f,0.0f,0.0f,1.0f};
+            clearValues[1].depthStencil = {1.0f,0};
+            
+            renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+            renderPassInfo.pClearValues = clearValues.data();
             
             vkCmdBeginRenderPass(commandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
             
@@ -976,6 +1049,13 @@ private:
     }
     
     void cleanupSwapChain() {
+        for (size_t i = 0; i < swapChainImages.size(); i++) {
+            vkDestroyImageView(device, depthImagesView[i], nullptr);
+            vkDestroyImage(device, depthImages[i], nullptr);
+            vkFreeMemory(device, depthImagesMemory[i], nullptr);
+        }
+        
+        
         for (auto framebuffer : swapChainFramebuffers) {
             vkDestroyFramebuffer(device, framebuffer, nullptr);
         }
@@ -1001,6 +1081,7 @@ private:
         createImageViews();
         createRenderPass();
         createGraphicsPipeline();
+        createDepthResources();
         createFramebuffers();
         createCommandBuffers();
     }
@@ -1137,7 +1218,7 @@ private:
         UniformBufferObject ubo = {};
         ubo.model = glm::rotate(glm::mat4(1.0f), float(exp(1.0 - fmod(time, 1.0)) - 1.0) * glm::radians(180.0f), glm::vec3(0.f, 0.f, 1.0f * int((int(time) % 2) * 2 - 1)));
         
-        ubo.view = glm::lookAt(glm::vec3(2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        ubo.view = glm::lookAt(glm::vec3(2.0f), glm::vec3(0.0f), glm::vec3(sin(time), cos(time), -sin(time)));
         
         ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float) swapChainExtent.height, 0.1f, 10.0f);
         
@@ -1230,7 +1311,17 @@ private:
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         
         barrier.image = image;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        
+        if (newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+            barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+            
+            if (hasStencilComponent(format)) {
+                barrier.subresourceRange.aspectMask != VK_IMAGE_ASPECT_STENCIL_BIT;
+            }
+        } else {
+            barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        }
+        
         barrier.subresourceRange.baseMipLevel = 0;
         barrier.subresourceRange.levelCount = 1;
         barrier.subresourceRange.baseArrayLayer = 0;
@@ -1251,6 +1342,12 @@ private:
             
             sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
             destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            
+            sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            destinationStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
         } else {
             throw invalid_argument("unsupported layout transition!");
         }
@@ -1381,7 +1478,7 @@ private:
         if (vkCreateImage(device, &imageInfo, nullptr, &image) != VK_SUCCESS) throw runtime_error("failed to create image!");
         
         VkMemoryRequirements memRequirements;
-        vkGetImageMemoryRequirements(device, textureImage, &memRequirements);
+        vkGetImageMemoryRequirements(device, image, &memRequirements);
         
         VkMemoryAllocateInfo allocInfo = {};
         allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -1394,16 +1491,56 @@ private:
     }
     
     void createTextureImageView() {
-        textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_UNORM);
+        textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT);
     }
     
-    VkImageView createImageView(VkImage image, VkFormat format) {
+    void createDepthResources() {
+        VkFormat depthFormat = findDepthFormat();
+        
+        depthImages.resize(swapChainImages.size());
+        depthImagesMemory.resize(swapChainImages.size());
+        depthImagesView.resize(swapChainImages.size());
+        
+        for (size_t i = 0; i < swapChainImageViews.size(); i++) {
+            createImage(swapChainExtent.width, swapChainExtent.height, depthFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, depthImages[i], depthImagesMemory[i]);
+            depthImagesView[i] = createImageView(depthImages[i], depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+            
+            transitionImageLayout(depthImages[i], depthFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+            
+            
+        }
+    }
+    
+    bool hasStencilComponent(VkFormat format) {
+        return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
+    }
+    
+    VkFormat findDepthFormat() {
+        return findSupportedFormat({VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT}, VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+    }
+    
+    VkFormat findSupportedFormat(const vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features) {
+        for (VkFormat format : candidates) {
+            VkFormatProperties props;
+            vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
+            
+            if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features) {
+                return format;
+            } else if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features) {
+                return format;
+            }
+        }
+        
+        throw runtime_error("failed to find supported format!");
+    }
+    
+    VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags) {
         VkImageViewCreateInfo viewInfo = {};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image = image;
         viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
         viewInfo.format = format;
-        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.aspectMask = aspectFlags;
         viewInfo.subresourceRange.baseMipLevel = 0;
         viewInfo.subresourceRange.levelCount = 1;
         viewInfo.subresourceRange.baseArrayLayer = 0;
@@ -1450,9 +1587,6 @@ private:
         samplerInfo.maxLod = 0.0f;
         
         if (vkCreateSampler(device, &samplerInfo, nullptr, &textureSampler) != VK_SUCCESS) throw runtime_error("failed to create texture sampler!");
-        
-        
-        
     }
     
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
